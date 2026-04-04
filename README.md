@@ -1,5 +1,9 @@
 # PolicyForge
 
+[![Go Version](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
+[![Tests](https://img.shields.io/badge/tests-go%20test%20.%2F...-0A7BBB)](#running-tests)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+
 PolicyForge is a Go-based policy enforcement and compliance evidence engine for infrastructure workflows. It evaluates requests against YAML-defined policy rules and returns decisions (allow, deny, or require_approval).
 
 ## Overview
@@ -211,4 +215,4 @@ go test ./... -v
 
 ## License
 
-Proprietary - Private GitHub repository
+MIT License. See [LICENSE](LICENSE).
