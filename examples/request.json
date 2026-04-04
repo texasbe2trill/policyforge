@@ -1,0 +1,7 @@
+{
+  "subject": "chris",
+  "role": "operator",
+  "resource": "prod/payment-service",
+  "action": "restart",
+  "requested_tier": "supervised_write"
+}

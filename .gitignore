@@ -1,0 +1,60 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+*.cover
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# Build artifacts
+artifacts/
+bin/
+dist/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.iml
+
+# macOS specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.documents
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.env.local
+
+# OS-specific
+Thumbs.db
+ehthumbs.db
+.classpath
+.project
+.c9/
+
+# Local environment files
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+policyforge
+policyforge.exe
