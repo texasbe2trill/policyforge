@@ -21,6 +21,7 @@ type Role struct {
 	Name             string       `yaml:"name"`
 	AllowedActions   []string     `yaml:"allowed_actions"`
 	AllowedTiers     []SafetyTier `yaml:"allowed_tiers"`
+	MaxTier          SafetyTier   `yaml:"max_tier"`
 	AllowedResources []string     `yaml:"allowed_resources"`
 }
 
@@ -54,6 +55,22 @@ type DecisionRequest struct {
 
 // Decision represents the result of a policy evaluation.
 type Decision struct {
-	Decision DecisionType `json:"decision"`
-	Reasons  []string     `json:"reasons"`
+	Decision        DecisionType `json:"decision"`
+	Reasons         []string     `json:"reasons"`
+	Timestamp       string       `json:"timestamp"`
+	RequestID       string       `json:"request_id"`
+	MatchedResource string       `json:"matched_resource"`
+	EvaluatedRole   string       `json:"evaluated_role"`
+}
+
+// AuditRecord is the JSONL payload persisted to audit logs.
+type AuditRecord struct {
+	RequestID string       `json:"request_id"`
+	Timestamp string       `json:"timestamp"`
+	Subject   string       `json:"subject"`
+	Role      string       `json:"role"`
+	Resource  string       `json:"resource"`
+	Action    string       `json:"action"`
+	Decision  DecisionType `json:"decision"`
+	Reasons   []string     `json:"reasons"`
 }

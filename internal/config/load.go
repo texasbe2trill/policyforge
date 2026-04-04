@@ -29,6 +29,11 @@ func LoadPolicy(filePath string) (*types.Policy, error) {
 	if len(policy.Resources) == 0 {
 		return nil, fmt.Errorf("invalid policy: at least one resource is required")
 	}
+	for _, role := range policy.Roles {
+		if role.MaxTier == "" {
+			return nil, fmt.Errorf("invalid policy: role '%s' must define max_tier", role.Name)
+		}
+	}
 
 	return &policy, nil
 }

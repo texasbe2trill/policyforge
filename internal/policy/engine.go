@@ -24,13 +24,13 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 
 	if e == nil || e.policy == nil {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, "policy is not initialized")
+		decision.Reasons = append(decision.Reasons, "invalid policy: engine is not initialized")
 		return decision
 	}
 
 	if req == nil {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, "request is required")
+		decision.Reasons = append(decision.Reasons, "invalid request: request payload is required")
 		return decision
 	}
 
@@ -38,14 +38,14 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 	role := e.findRole(req.Role)
 	if role == nil {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("role '%s' does not exist", req.Role))
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: role '%s' was not found", req.Role))
 		return decision
 	}
 
 	// Check 2: Action is allowed for role
 	if !e.actionAllowedForRole(req.Action, role) {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("action '%s' is not allowed for role '%s'", req.Action, req.Role))
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: action '%s' is not allowed for role '%s'", req.Action, req.Role))
 		return decision
 	}
 
@@ -53,14 +53,14 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 	resource := e.findResource(req.Resource)
 	if resource == nil {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("resource '%s' does not exist", req.Resource))
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: resource '%s' was not found", req.Resource))
 		return decision
 	}
 
 	// Check 4: Role is allowed for resource
 	if !e.resourceAllowedForRole(req.Resource, role) {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("role '%s' is not allowed for resource '%s'", req.Role, req.Resource))
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: role '%s' is not allowed to access resource '%s'", req.Role, req.Resource))
 		return decision
 	}
 
@@ -68,14 +68,20 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 	tier := e.findTier(req.RequestedTier)
 	if tier == nil {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("tier '%s' does not exist", req.RequestedTier))
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: requested tier '%s' was not found", req.RequestedTier))
 		return decision
 	}
 
 	// Check 6: Requested tier is allowed for role
 	if !e.tierAllowedForRole(req.RequestedTier, role) {
 		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("tier '%s' is not allowed for role '%s'", req.RequestedTier, req.Role))
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: requested tier '%s' is not allowed for role '%s'", req.RequestedTier, req.Role))
+		return decision
+	}
+
+	if e.exceedsMaxTier(req.RequestedTier, role.MaxTier) {
+		decision.Decision = types.DecisionRequireApproval
+		decision.Reasons = append(decision.Reasons, fmt.Sprintf("approval: requested tier '%s' exceeds role '%s' max tier '%s'", req.RequestedTier, req.Role, role.MaxTier))
 		return decision
 	}
 
@@ -84,10 +90,10 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 		decision.Decision = types.DecisionRequireApproval
 		reasons := []string{}
 		if resource.RequiresApproval {
-			reasons = append(reasons, fmt.Sprintf("resource '%s' requires approval", req.Resource))
+			reasons = append(reasons, fmt.Sprintf("approval: resource '%s' requires approval", req.Resource))
 		}
 		if tier.RequiresApproval {
-			reasons = append(reasons, fmt.Sprintf("tier '%s' requires approval", req.RequestedTier))
+			reasons = append(reasons, fmt.Sprintf("approval: tier '%s' requires approval", req.RequestedTier))
 		}
 		decision.Reasons = reasons
 		return decision
@@ -95,8 +101,30 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 
 	// All checks passed
 	decision.Decision = types.DecisionAllow
-	decision.Reasons = append(decision.Reasons, "all policy checks passed")
+	decision.Reasons = append(decision.Reasons, "allow: all policy checks passed")
 	return decision
+}
+
+func (e *Engine) exceedsMaxTier(requested types.SafetyTier, max types.SafetyTier) bool {
+	requestedRank, okRequested := tierRank(requested)
+	maxRank, okMax := tierRank(max)
+	if !okRequested || !okMax {
+		return false
+	}
+	return requestedRank > maxRank
+}
+
+func tierRank(t types.SafetyTier) (int, bool) {
+	switch t {
+	case types.ReadOnly:
+		return 1, true
+	case types.SupervisedWrite:
+		return 2, true
+	case types.AutonomousWrite:
+		return 3, true
+	default:
+		return 0, false
+	}
 }
 
 // findRole returns the role with the matching name, or nil if not found.

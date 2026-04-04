@@ -1,0 +1,7 @@
+{
+  "subject": "alex",
+  "role": "viewer",
+  "resource": "staging/payment-service",
+  "action": "read",
+  "requested_tier": "read_only"
+}

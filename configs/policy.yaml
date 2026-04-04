@@ -17,6 +17,7 @@ roles:
       - "read_only"
       - "supervised_write"
       - "autonomous_write"
+    max_tier: "autonomous_write"
     allowed_resources:
       - "prod/payment-service"
       - "prod/api-gateway"
@@ -29,6 +30,7 @@ roles:
     allowed_tiers:
       - "read_only"
       - "supervised_write"
+    max_tier: "supervised_write"
     allowed_resources:
       - "prod/payment-service"
       - "staging/payment-service"
@@ -37,6 +39,7 @@ roles:
       - "read"
     allowed_tiers:
       - "read_only"
+    max_tier: "read_only"
     allowed_resources:
       - "prod/payment-service"
       - "prod/api-gateway"
@@ -46,6 +49,7 @@ roles:
       - "read"
     allowed_tiers:
       - "read_only"
+    max_tier: "read_only"
     allowed_resources:
       - "staging/payment-service"
 

@@ -1,0 +1,7 @@
+{
+  "subject": "pat",
+  "role": "viewer",
+  "resource": "staging/payment-service",
+  "action": "restart",
+  "requested_tier": "read_only"
+}
