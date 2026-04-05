@@ -21,42 +21,46 @@ const (
 // LogDecision appends a single tamper-evident decision record to the audit JSONL file.
 // Each record contains a SHA-256 hash of its key fields and the hash of the previous
 // record, forming a simple chain that makes undetected modification difficult.
-func LogDecision(result types.Decision, request types.DecisionRequest) error {
+// It returns the hash of the newly written record so callers can embed it in
+// evidence bundles.
+func LogDecision(result types.Decision, request types.DecisionRequest) (string, string, error) {
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
-		return fmt.Errorf("failed to create audit directory: %w", err)
+		return "", "", fmt.Errorf("failed to create audit directory: %w", err)
 	}
 
 	path := filepath.Join(auditDir, auditFile)
 
 	record := types.AuditRecord{
-		RequestID:    result.RequestID,
-		Timestamp:    result.Timestamp,
-		Subject:      request.Subject,
-		Role:         request.Role,
-		Resource:     request.Resource,
-		Action:       request.Action,
-		Decision:     result.Decision,
-		Reasons:      result.Reasons,
-		PreviousHash: lastAuditHash(path),
+		RequestID:     result.RequestID,
+		Timestamp:     result.Timestamp,
+		Subject:       request.Subject,
+		Role:          request.Role,
+		Resource:      request.Resource,
+		Action:        request.Action,
+		RequestedTier: string(request.RequestedTier),
+		Agent:         request.Agent,
+		Decision:      result.Decision,
+		Reasons:       result.Reasons,
+		PreviousHash:  lastAuditHash(path),
 	}
 	record.Hash = computeHash(record)
 
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		return fmt.Errorf("failed to open audit log file: %w", err)
+		return "", "", fmt.Errorf("failed to open audit log file: %w", err)
 	}
 	defer file.Close()
 
 	line, err := json.Marshal(record)
 	if err != nil {
-		return fmt.Errorf("failed to marshal audit record: %w", err)
+		return "", "", fmt.Errorf("failed to marshal audit record: %w", err)
 	}
 
 	if _, err := file.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("failed to append audit record: %w", err)
+		return "", "", fmt.Errorf("failed to append audit record: %w", err)
 	}
 
-	return nil
+	return record.Hash, record.PreviousHash, nil
 }
 
 // computeHash returns the hex-encoded SHA-256 of the record's key fields joined

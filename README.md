@@ -30,6 +30,8 @@ Every decision is logged to an append-only audit file — no setup required.
 - [Audit Logging](#audit-logging)
 - [Evidence Bundles](#evidence-bundles)
 - [Approval Flow](#approval-flow)
+- [Approval Persistence](#approval-persistence)
+- [Drift Detection](#drift-detection)
 - [Project Structure](#project-structure)
 - [Development](#development)
 
@@ -662,6 +664,149 @@ Controls are mapped automatically from the request context:
 
 ---
 
+## Approval Persistence
+
+When a request evaluates to `require_approval`, PolicyForge now creates a persisted approval record in `artifacts/approvals.json`. This turns the soft gate into a real workflow — you can list pending approvals, approve them, or reject them.
+
+### How it works
+
+1. A `require_approval` decision creates a record with `status: pending`
+2. `--auto-approve` creates the record with `status: approved` immediately
+3. A human reviewer uses `--approve-id` or `--reject-id` to resolve it
+
+### Submit a request that requires approval
+
+```bash
+go run ./cmd/policyforge \
+  --policy ./configs/policy.yaml \
+  --input ./examples/request-require-approval.json
+```
+
+```
+Approval required — approval ID: apr-1775349830126355000
+{
+  "decision": "require_approval",
+  ...
+}
+```
+
+### List pending approvals
+
+```bash
+go run ./cmd/policyforge --list-approvals
+# or:
+make approvals
+```
+
+```json
+[
+  {
+    "approval_id": "apr-1775349830126355000",
+    "request_id": "req-1775349830121985000",
+    "status": "pending",
+    "subject": "chris",
+    "role": "operator",
+    "resource": "prod/payment-service",
+    "action": "restart",
+    "requested_tier": "supervised_write",
+    "reasons": ["approval: resource 'prod/payment-service' requires approval"],
+    "requested_at": "2026-04-05T00:06:38Z"
+  }
+]
+```
+
+### Approve a request
+
+```bash
+go run ./cmd/policyforge \
+  --approve-id apr-1775349830126355000 \
+  --decided-by chris \
+  --decision-note "approved for emergency maintenance"
+```
+
+```json
+{"approved": "apr-1775349830126355000", "decided_by": "chris"}
+```
+
+### Reject a request
+
+```bash
+go run ./cmd/policyforge \
+  --reject-id apr-1775349830126355000 \
+  --decided-by security-team \
+  --decision-note "insufficient justification"
+```
+
+Approval records are stored in `artifacts/approvals.json` and are linked to their evidence bundles via `approval_id`.
+
+---
+
+## Drift Detection
+
+Drift detection re-evaluates every record in the audit log against the **current** policy. If a request was previously `allow`ed but today's policy would `deny` or `require_approval` it, that's a finding.
+
+This answers the question: *"Has our policy tightened since these decisions were made? Are there any past actions that would no longer be permitted?"*
+
+### Run drift detection
+
+```bash
+go run ./cmd/policyforge \
+  --policy ./configs/policy.yaml \
+  --drift-check
+# or:
+make drift
+```
+
+Findings are written to `artifacts/drift/findings.json` and printed to stdout.
+
+### No drift found
+
+```json
+{"findings": [], "summary": "no drift detected"}
+```
+
+### Drift findings example
+
+```json
+[
+  {
+    "finding_id": "drift-1775349830126355000",
+    "timestamp": "2026-04-05T01:00:00Z",
+    "request_id": "req-1775346112600030000",
+    "subject": "alice",
+    "role": "viewer",
+    "resource": "staging/payment-service",
+    "action": "restart",
+    "requested_tier": "read_only",
+    "observed_decision": "allow",
+    "expected_decision": "deny",
+    "severity": "high",
+    "drift_type": "unauthorized_action",
+    "message": "request was allowed but current policy would deny: deny: action 'restart' is not allowed for role 'viewer'"
+  }
+]
+```
+
+### Drift types
+
+| `drift_type` | Meaning |
+|---|---|
+| `decision_mismatch` | Policy outcome changed but no specific violation |
+| `unauthorized_resource_access` | Role no longer allowed to access this resource |
+| `unauthorized_action` | Action no longer in role's `allowed_actions` |
+| `agent_envelope_violation` | Agent envelope no longer permits the action/resource |
+| `tier_exceeded` | Tier request exceeds current role `max_tier` |
+
+### Severity
+
+| Severity | Condition |
+|---|---|
+| `high` | Was `allow`, current policy would `deny` |
+| `medium` | Was `allow`, current policy would `require_approval` |
+| `low` | Any other mismatch |
+
+---
+
 ## Approval Flow
 
 When a decision is `require_approval` the CLI prints a notification line before the JSON:
@@ -693,6 +838,10 @@ policyforge/
 │       ├── main.go             # HTTP API entry point
 │       └── handler_test.go     # API handler tests
 ├── internal/
+│   ├── approval/
+│   │   ├── types.go            # Approval status constants and Record struct
+│   │   ├── store.go            # JSON-backed approval CRUD with atomic writes
+│   │   └── store_test.go       # Approval store tests
 │   ├── audit/
 │   │   └── logger.go           # Append-only JSONL audit writer with hash chain
 │   ├── compliance/
@@ -701,8 +850,13 @@ policyforge/
 │   │   ├── load.go             # YAML policy loader with validation
 │   │   ├── request.go          # JSON request loader with field validation
 │   │   └── request_test.go     # Request loader tests
+│   ├── drift/
+│   │   ├── types.go            # DriftType, Severity constants and Finding struct
+│   │   ├── detector.go         # Re-evaluate audit log and detect policy drift
+│   │   └── detector_test.go    # Drift detector tests
 │   ├── evidence/
-│   │   └── bundle.go           # Evidence bundle generation
+│   │   ├── bundle.go           # Evidence bundle generation with CSV index
+│   │   └── bundle_test.go      # Evidence bundle tests
 │   ├── policy/
 │   │   ├── engine.go           # Deterministic evaluation engine
 │   │   └── engine_test.go      # Table-driven engine tests
@@ -720,7 +874,11 @@ policyforge/
 │   └── request-agent.json               # Scenario: agent envelope
 ├── artifacts/
 │   ├── audit.jsonl             # Decision audit log (auto-created, gitignored)
+│   ├── approvals.json          # Pending/decided approvals (auto-created, gitignored)
+│   ├── drift/
+│   │   └── findings.json       # Drift findings from last run (auto-created, gitignored)
 │   └── evidence/               # Evidence bundles (auto-created, gitignored)
+│       └── index.csv           # CSV index of all evidence bundles
 ├── Makefile
 ├── go.mod
 ├── go.sum

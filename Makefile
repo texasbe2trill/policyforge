@@ -1,4 +1,4 @@
-.PHONY: run api test build lint demo
+.PHONY: run api test build lint demo drift approvals
 
 run:
 	go run ./cmd/policyforge
@@ -20,3 +20,9 @@ demo:
 lint:
 	go vet ./...
 	gofmt -l . | (! grep .)
+
+drift:
+	go run ./cmd/policyforge --policy ./configs/policy.yaml --drift-check
+
+approvals:
+	go run ./cmd/policyforge --list-approvals
