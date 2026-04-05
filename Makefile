@@ -1,7 +1,10 @@
-.PHONY: run test build lint
+.PHONY: run api test build lint
 
 run:
 	go run ./cmd/policyforge
+
+api:
+	go run ./cmd/policyforge-api
 
 test:
 	go test ./...
@@ -9,6 +12,7 @@ test:
 build:
 	@mkdir -p bin
 	go build -o bin/policyforge ./cmd/policyforge
+	go build -o bin/policyforge-api ./cmd/policyforge-api
 
 lint:
 	@echo "lint target placeholder"

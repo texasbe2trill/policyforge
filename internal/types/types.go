@@ -64,13 +64,17 @@ type Decision struct {
 }
 
 // AuditRecord is the JSONL payload persisted to audit logs.
+// Hash is a SHA-256 digest of the record's key fields, providing tamper detection.
+// PreviousHash chains each record to the one before it.
 type AuditRecord struct {
-	RequestID string       `json:"request_id"`
-	Timestamp string       `json:"timestamp"`
-	Subject   string       `json:"subject"`
-	Role      string       `json:"role"`
-	Resource  string       `json:"resource"`
-	Action    string       `json:"action"`
-	Decision  DecisionType `json:"decision"`
-	Reasons   []string     `json:"reasons"`
+	RequestID    string       `json:"request_id"`
+	Timestamp    string       `json:"timestamp"`
+	Subject      string       `json:"subject"`
+	Role         string       `json:"role"`
+	Resource     string       `json:"resource"`
+	Action       string       `json:"action"`
+	Decision     DecisionType `json:"decision"`
+	Reasons      []string     `json:"reasons"`
+	Hash         string       `json:"hash"`
+	PreviousHash string       `json:"previous_hash,omitempty"`
 }

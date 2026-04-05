@@ -15,10 +15,12 @@ Every decision is logged to an append-only audit file — no setup required.
 - [How It Works](#how-it-works)
 - [Quick Start (5 Minutes)](#quick-start-5-minutes)
 - [CLI Reference](#cli-reference)
+- [REST API](#rest-api)
 - [Policy Configuration](#policy-configuration)
 - [Decision Logic](#decision-logic)
 - [Decision Response Schema](#decision-response-schema)
 - [Audit Logging](#audit-logging)
+- [Evidence Bundles](#evidence-bundles)
 - [Approval Flow](#approval-flow)
 - [Project Structure](#project-structure)
 - [Development](#development)
@@ -133,6 +135,72 @@ go run ./cmd/policyforge --policy ./configs/policy.yaml --input ./examples/reque
 ```
 2026/04/04 18:31:31 invalid CLI request: missing required request fields: subject, resource, action, requested_tier
 ```
+
+---
+
+## REST API
+
+PolicyForge ships a second entrypoint, `cmd/policyforge-api`, that exposes the same evaluation logic over HTTP.
+
+### Start the server
+
+```bash
+go run ./cmd/policyforge-api --policy ./configs/policy.yaml
+# 2026/04/05 00:06:36 policyforge-api listening on :8080
+```
+
+Or with a custom address:
+
+```bash
+go run ./cmd/policyforge-api --addr :9090
+```
+
+### Endpoints
+
+| Method | Path        | Description                              |
+|--------|-------------|------------------------------------------|
+| `GET`  | `/health`   | Returns `{"status":"ok"}` when ready     |
+| `POST` | `/evaluate` | Evaluates a decision request             |
+
+### POST /evaluate
+
+Request body is the same schema as a JSON input file:
+
+```bash
+curl -X POST http://localhost:8080/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "chris",
+    "role": "operator",
+    "resource": "prod/payment-service",
+    "action": "restart",
+    "requested_tier": "supervised_write"
+  }'
+```
+
+```json
+{
+  "decision": "require_approval",
+  "reasons": [
+    "approval: resource 'prod/payment-service' requires approval",
+    "approval: tier 'supervised_write' requires approval"
+  ],
+  "timestamp": "2026-04-05T00:06:38Z",
+  "request_id": "req-1775347598162694000",
+  "matched_resource": "prod/payment-service",
+  "evaluated_role": "operator"
+}
+```
+
+Pass `?auto_approve=true` to convert a `require_approval` decision to `allow`:
+
+```bash
+curl -X POST "http://localhost:8080/evaluate?auto_approve=true" \
+  -H "Content-Type: application/json" \
+  -d '{"subject":"chris","role":"operator","resource":"prod/payment-service","action":"restart","requested_tier":"supervised_write"}'
+```
+
+Every API request produces an audit log entry and evidence bundle, identical to the CLI.
 
 ---
 
@@ -322,7 +390,9 @@ Each line is a single JSON object:
 {"request_id":"req-1775346112640457000","timestamp":"2026-04-04T23:41:52Z","subject":"pat","role":"viewer","resource":"staging/payment-service","action":"restart","decision":"deny","reasons":["deny: action 'restart' is not allowed for role 'viewer'"]}
 ```
 
-The audit log is append-only. It is never overwritten by the CLI. To query it:
+Each record includes a `hash` (SHA-256 of the key fields) and a `previous_hash` that chains each entry to the one before it. This makes undetected modification of the log difficult — any change to a record invalidates its hash and breaks the chain.
+
+The audit log is append-only. It is never overwritten by the CLI or API. To query it:
 
 ```bash
 # view the last 10 decisions
@@ -337,6 +407,46 @@ grep '"subject":"chris"' artifacts/audit.jsonl
 # pretty-print a single entry
 tail -n 1 artifacts/audit.jsonl | jq .
 ```
+
+---
+
+## Evidence Bundles
+
+Every evaluation — CLI or API — writes a compliance-ready JSON file to `artifacts/evidence/<bundle_id>.json`. The directory is created automatically.
+
+Each bundle captures the full context of the decision:
+
+```json
+{
+  "bundle_id": "ev_1775347598163202000_97651",
+  "request_id": "req-1775347598162694000",
+  "timestamp": "2026-04-05T00:06:38Z",
+  "decision": "require_approval",
+  "subject": "chris",
+  "role": "operator",
+  "resource": "prod/payment-service",
+  "action": "restart",
+  "requested_tier": "supervised_write",
+  "reasons": [
+    "approval: resource 'prod/payment-service' requires approval",
+    "approval: tier 'supervised_write' requires approval"
+  ],
+  "controls": [
+    "PCI-DSS-7.2",
+    "PCI-DSS-10.2"
+  ]
+}
+```
+
+### Compliance controls
+
+Controls are mapped automatically from the request context:
+
+| Condition | Control |
+|---|---|
+| Resource path contains `prod` | `PCI-DSS-7.2` |
+| Action is `restart`, `write`, or `scale` | `PCI-DSS-10.2` |
+| Decision is `deny` | `SECURITY-ENFORCEMENT` |
 
 ---
 
@@ -365,29 +475,39 @@ go run ./cmd/policyforge \
 ```
 policyforge/
 ├── cmd/
-│   └── policyforge/
-│       └── main.go             # CLI entry point: flags, request building, output
+│   ├── policyforge/
+│   │   └── main.go             # CLI entry point
+│   └── policyforge-api/
+│       ├── main.go             # HTTP API entry point
+│       └── handler_test.go     # API handler tests
 ├── internal/
 │   ├── audit/
-│   │   └── logger.go           # Append-only JSONL audit writer
+│   │   └── logger.go           # Append-only JSONL audit writer with hash chain
+│   ├── compliance/
+│   │   └── mapping.go          # Compliance control mapping (PCI-DSS etc.)
 │   ├── config/
 │   │   ├── load.go             # YAML policy loader with validation
 │   │   ├── request.go          # JSON request loader with field validation
 │   │   └── request_test.go     # Request loader tests
+│   ├── evidence/
+│   │   └── bundle.go           # Evidence bundle generation
 │   ├── policy/
 │   │   ├── engine.go           # Deterministic evaluation engine
 │   │   └── engine_test.go      # Table-driven engine tests
+│   ├── service/
+│   │   └── evaluator.go        # Shared evaluation pipeline (CLI + API parity)
 │   └── types/
-│       └── types.go            # Shared domain types (Policy, Role, Decision, etc.)
+│       └── types.go            # Shared domain types
 ├── configs/
 │   └── policy.yaml             # Default policy definition
 ├── examples/
-│   ├── request.json                     # Default request
-│   ├── request-allow.json               # Scenario: allow
-│   ├── request-deny-action.json         # Scenario: deny (bad action)
-│   └── request-require-approval.json    # Scenario: require_approval
+│   ├── request.json
+│   ├── request-allow.json
+│   ├── request-deny-action.json
+│   └── request-require-approval.json
 ├── artifacts/
-│   └── audit.jsonl             # Decision audit log (auto-created, gitignored)
+│   ├── audit.jsonl             # Decision audit log (auto-created, gitignored)
+│   └── evidence/               # Evidence bundles (auto-created, gitignored)
 ├── Makefile
 ├── go.mod
 ├── go.sum
@@ -407,17 +527,25 @@ go test ./... -v       # verbose output
 go test -cover ./...   # with coverage
 ```
 
-### Build binary
+### Start the API server
+
+```bash
+make api
+# go run ./cmd/policyforge-api
+```
+
+### Build binaries
 
 ```bash
 make build
-# produces bin/policyforge
+# produces bin/policyforge and bin/policyforge-api
 ```
 
 Or directly:
 
 ```bash
 go build -o bin/policyforge ./cmd/policyforge
+go build -o bin/policyforge-api ./cmd/policyforge-api
 ```
 
 ### Format and vet
