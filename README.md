@@ -1,7 +1,9 @@
 # PolicyForge
 
-[![Go Version](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](#running-tests)
+[![CI](https://img.shields.io/github/actions/workflow/status/texasbe2trill/policyforge/ci.yml?branch=main&label=CI)](https://github.com/texasbe2trill/policyforge/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/texasbe2trill/policyforge)](https://goreportcard.com/report/github.com/texasbe2trill/policyforge)
+[![Go Reference](https://pkg.go.dev/badge/github.com/texasbe2trill/policyforge.svg)](https://pkg.go.dev/github.com/texasbe2trill/policyforge)
+[![Go Version](https://img.shields.io/badge/go-1.21%2B-00ADD8?logo=go)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
 **PolicyForge** is a lightweight Go tool for enforcing access policies in infrastructure workflows. You define your roles, resources, and safety tiers in YAML. PolicyForge takes a request, checks it against those rules, and tells you whether to `allow` it, `deny` it, or `require_approval`.
@@ -18,6 +20,7 @@ Every decision is logged to an append-only audit file — no setup required.
 
 - [How It Works](#how-it-works)
 - [Quick Start (5 Minutes)](#quick-start-5-minutes)
+- [Bring Your Own Policy](#bring-your-own-policy)
 - [CLI Reference](#cli-reference)
 - [Agent Policy Envelopes](#agent-policy-envelopes)
 - [REST API](#rest-api)
@@ -97,6 +100,80 @@ Every command above appended a record to the audit log:
 ```bash
 tail -n 3 artifacts/audit.jsonl
 ```
+
+---
+
+## Bring Your Own Policy
+
+The examples use a pre-built policy. To enforce your own rules, you only need to edit one file.
+
+### 1. Copy the example policy
+
+```bash
+cp configs/policy.yaml configs/my-policy.yaml
+```
+
+### 2. Define your resources
+
+Add every infrastructure target you want to protect:
+
+```yaml
+resources:
+  - name: "prod/database"
+    requires_approval: true
+  - name: "staging/database"
+    requires_approval: false
+  - name: "prod/api"
+    requires_approval: true
+```
+
+### 3. Define your roles
+
+Map your team roles to allowed actions, tiers, and resources:
+
+```yaml
+roles:
+  - name: "developer"
+    allowed_actions: ["read", "deploy"]
+    allowed_tiers:   ["read_only", "supervised_write"]
+    max_tier:        "supervised_write"
+    allowed_resources:
+      - "staging/database"
+
+  - name: "sre"
+    allowed_actions: ["read", "deploy", "restart", "scale"]
+    allowed_tiers:   ["read_only", "supervised_write", "autonomous_write"]
+    max_tier:        "autonomous_write"
+    allowed_resources:
+      - "prod/database"
+      - "prod/api"
+      - "staging/database"
+```
+
+### 4. Evaluate requests
+
+Pass your policy path to any command:
+
+```bash
+# via flags
+go run ./cmd/policyforge \
+  --policy configs/my-policy.yaml \
+  --subject alice \
+  --role developer \
+  --resource staging/database \
+  --action deploy \
+  --tier supervised_write
+
+# via a JSON file
+go run ./cmd/policyforge --policy configs/my-policy.yaml --input my-request.json
+
+# via the API
+go run ./cmd/policyforge-api --policy configs/my-policy.yaml
+```
+
+Audit records and evidence bundles are written automatically to `artifacts/` for every evaluation.
+
+> **Tip:** Start with `requires_approval: true` on all production resources until you've validated your role definitions. You can always loosen the policy once you've reviewed a few audit log entries.
 
 ---
 

@@ -15,7 +15,6 @@ build:
 	go build -o bin/policyforge-api ./cmd/policyforge-api
 
 demo:
-	go build -o bin/policyforge ./cmd/policyforge
 	vhs demo.tape
 
 lint:
