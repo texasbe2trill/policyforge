@@ -80,16 +80,13 @@ func TestDetectNoDrift(t *testing.T) {
 	data, _ := json.Marshal(record)
 	os.WriteFile(auditPath, append(data, '\n'), 0o644)
 
-	// Override the module-level auditFile for this test.
 	origAudit := auditFile
-	origDrift := driftDir
+	origOutput := outputFile
 	auditFile = auditPath
-	driftDir = dir
 	outputFile = dir + "/findings.json"
 	defer func() {
 		auditFile = origAudit
-		driftDir = origDrift
-		outputFile = origDrift + "/findings.json"
+		outputFile = origOutput
 	}()
 
 	eng := policy.New(testPolicy())
@@ -124,14 +121,12 @@ func TestDetectDriftAllowNowDeny(t *testing.T) {
 	os.WriteFile(auditPath, append(data, '\n'), 0o644)
 
 	origAudit := auditFile
-	origDrift := driftDir
+	origOutput := outputFile
 	auditFile = auditPath
-	driftDir = dir
 	outputFile = dir + "/findings.json"
 	defer func() {
 		auditFile = origAudit
-		driftDir = origDrift
-		outputFile = origDrift + "/findings.json"
+		outputFile = origOutput
 	}()
 
 	eng := policy.New(testPolicy())
@@ -177,14 +172,12 @@ func TestDetectDriftAllowNowRequireApproval(t *testing.T) {
 	os.WriteFile(auditPath, append(data, '\n'), 0o644)
 
 	origAudit := auditFile
-	origDrift := driftDir
+	origOutput := outputFile
 	auditFile = auditPath
-	driftDir = dir
 	outputFile = dir + "/findings.json"
 	defer func() {
 		auditFile = origAudit
-		driftDir = origDrift
-		outputFile = origDrift + "/findings.json"
+		outputFile = origOutput
 	}()
 
 	eng := policy.New(testPolicy())
@@ -204,12 +197,7 @@ func TestWriteFindingsCreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	orig := outputFile
 	outputFile = dir + "/findings.json"
-	origDir := driftDir
-	driftDir = dir
-	defer func() {
-		outputFile = orig
-		driftDir = origDir
-	}()
+	defer func() { outputFile = orig }()
 
 	if err := writeFindings([]Finding{}); err != nil {
 		t.Fatalf("writeFindings failed: %v", err)

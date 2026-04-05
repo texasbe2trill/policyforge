@@ -83,7 +83,6 @@ func Evaluate(eng *policy.Engine, req types.DecisionRequest, autoApprove bool) (
 	controls := compliance.MapControls(req, decision.Decision)
 
 	opts := evidence.Options{
-		Agent:             req.Agent,
 		PolicyVersion:     policyVersion,
 		AuditRecordHash:   auditHash,
 		PreviousAuditHash: prevHash,

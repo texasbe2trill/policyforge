@@ -15,7 +15,6 @@ import (
 
 var (
 	auditFile  = "artifacts/audit.jsonl"
-	driftDir   = "artifacts/drift"
 	outputFile = "artifacts/drift/findings.json"
 )
 
@@ -67,10 +66,11 @@ func Detect(eng *policy.Engine) ([]Finding, error) {
 		case observed == "allow" && expected == "deny":
 			finding.Severity = SeverityHigh
 			finding.DriftType = classifyDenyDrift(current.Reasons)
-			finding.Message = fmt.Sprintf(
-				"request was allowed but current policy would deny: %s",
-				current.Reasons[0],
-			)
+			msg := "request was allowed but current policy would deny"
+			if len(current.Reasons) > 0 {
+				msg += ": " + current.Reasons[0]
+			}
+			finding.Message = msg
 		case observed == "allow" && expected == "require_approval":
 			finding.Severity = SeverityMedium
 			finding.DriftType = DriftDecisionMismatch
@@ -121,7 +121,7 @@ func loadAuditRecords() ([]types.AuditRecord, error) {
 }
 
 func writeFindings(findings []Finding) error {
-	if err := os.MkdirAll(driftDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputFile), 0o755); err != nil {
 		return fmt.Errorf("failed to create drift directory: %w", err)
 	}
 
@@ -134,8 +134,7 @@ func writeFindings(findings []Finding) error {
 		return fmt.Errorf("failed to marshal findings: %w", err)
 	}
 
-	path := filepath.Join(driftDir, "findings.json")
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(outputFile, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write findings: %w", err)
 	}
 	return nil

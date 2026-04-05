@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"crypto/rand"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"math/big"
@@ -20,7 +21,6 @@ var (
 
 // Options carries optional metadata that enriches a bundle beyond the core decision.
 type Options struct {
-	Agent             string
 	ApprovalStatus    string
 	ApprovalID        string
 	PolicyVersion     string
@@ -128,13 +128,17 @@ func appendIndex(b *EvidenceBundle) error {
 	}
 	defer f.Close()
 
+	w := csv.NewWriter(f)
 	if needsHeader {
-		if _, err := fmt.Fprintln(f, "bundle_id,request_id,timestamp,decision,subject,role,resource,action,controls,approval_status,approval_id"); err != nil {
+		if err := w.Write([]string{
+			"bundle_id", "request_id", "timestamp", "decision",
+			"subject", "role", "resource", "action",
+			"controls", "approval_status", "approval_id",
+		}); err != nil {
 			return fmt.Errorf("failed to write index header: %w", err)
 		}
 	}
-
-	row := strings.Join([]string{
+	if err := w.Write([]string{
 		b.BundleID,
 		b.RequestID,
 		b.Timestamp,
@@ -146,10 +150,12 @@ func appendIndex(b *EvidenceBundle) error {
 		strings.Join(b.Controls, ";"),
 		b.ApprovalStatus,
 		b.ApprovalID,
-	}, ",")
-
-	if _, err := fmt.Fprintln(f, row); err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to write index row: %w", err)
+	}
+	w.Flush()
+	if err := w.Error(); err != nil {
+		return fmt.Errorf("failed to flush evidence index: %w", err)
 	}
 	return nil
 }
