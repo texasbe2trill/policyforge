@@ -14,6 +14,10 @@ Every decision is logged to an append-only audit file — no setup required.
 
 ![PolicyForge demo](demo.gif)
 
+**Approval workflow + drift detection:**
+
+![PolicyForge approval workflow demo](artifacts/demo-approvals.gif)
+
 ---
 
 ## Table of Contents
@@ -882,7 +886,8 @@ policyforge/
 ├── Makefile
 ├── go.mod
 ├── go.sum
-├── demo.tape                   # VHS tape for re-recording the demo
+├── demo.tape                   # VHS tape — core evaluation demo
+├── demo-approvals.tape         # VHS tape — approval workflow + drift demo
 ├── demo.gif                    # Animated terminal demo
 ├── LICENSE
 └── README.md
@@ -928,14 +933,19 @@ go fmt ./...
 go vet ./...
 ```
 
-### Re-record the demo
+### Re-record the demos
 
 Requires [VHS](https://github.com/charmbracelet/vhs) (`brew install vhs`):
 
 ```bash
-make demo
-# builds bin/policyforge then runs vhs demo.tape → demo.gif
+make demo             # vhs demo.tape            → artifacts/demo.gif
+make demo-approvals   # vhs demo-approvals.tape  → artifacts/demo-approvals.gif
 ```
+
+| Tape | What it shows |
+|------|--------------|
+| `demo.tape` | Core evaluation: allow, deny, require\_approval (auto), agent deny, audit log, evidence bundle |
+| `demo-approvals.tape` | Approval workflow + drift detection: submit → list → approve → drift check |
 
 ### Testing strategy
 

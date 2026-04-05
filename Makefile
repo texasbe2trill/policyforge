@@ -1,4 +1,4 @@
-.PHONY: run api test build lint demo drift approvals
+.PHONY: run api test build lint demo demo-approvals drift approvals
 
 run:
 	go run ./cmd/policyforge
@@ -16,6 +16,9 @@ build:
 
 demo:
 	vhs demo.tape
+
+demo-approvals:
+	vhs demo-approvals.tape
 
 lint:
 	go vet ./...
