@@ -60,3 +60,21 @@ resources:
     requires_approval: true
   - name: "staging/payment-service"
     requires_approval: false
+
+agent_envelopes:
+  - name: "remediation-bot"
+    allowed_resources:
+      - "staging/*"
+    allowed_actions:
+      - "read"
+      - "restart"
+    max_tier: "autonomous_write"
+    session_ttl_minutes: 30
+
+  - name: "prod-operator-bot"
+    allowed_resources:
+      - "prod/payment-service"
+    allowed_actions:
+      - "read"
+    max_tier: "read_only"
+    session_ttl_minutes: 15

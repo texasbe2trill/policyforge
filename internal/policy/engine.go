@@ -85,7 +85,27 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 		return decision
 	}
 
-	// Check 7: Approval requirements
+	// Check 7: Agent envelope — hard deny/approval checks run before softgates so
+	// that an agent restriction always takes precedence over a resource approval.
+	if agentDecision := e.evaluateAgentEnvelope(req); agentDecision != nil {
+		return agentDecision
+	}
+
+	// Check 8: Approval requirements
+	if resource.RequiresApproval || tier.RequiresApproval {
+		decision.Decision = types.DecisionRequireApproval
+		reasons := []string{}
+		if resource.RequiresApproval {
+			reasons = append(reasons, fmt.Sprintf("approval: resource '%s' requires approval", req.Resource))
+		}
+		if tier.RequiresApproval {
+			reasons = append(reasons, fmt.Sprintf("approval: tier '%s' requires approval", req.RequestedTier))
+		}
+		decision.Reasons = reasons
+		return decision
+	}
+
+	// Check 8: Approval requirements (softgates)
 	if resource.RequiresApproval || tier.RequiresApproval {
 		decision.Decision = types.DecisionRequireApproval
 		reasons := []string{}
@@ -103,6 +123,44 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 	decision.Decision = types.DecisionAllow
 	decision.Reasons = append(decision.Reasons, "allow: all policy checks passed")
 	return decision
+}
+
+// evaluateAgentEnvelope runs agent-specific checks after RBAC has passed.
+// Returns a non-nil decision only when a check fails.
+func (e *Engine) evaluateAgentEnvelope(req *types.DecisionRequest) *types.Decision {
+	if req.Agent == "" {
+		return nil
+	}
+
+	envelope := e.findAgentEnvelope(req.Agent)
+	if envelope == nil {
+		return denyDecision(fmt.Sprintf("deny: agent '%s' was not found in policy", req.Agent))
+	}
+
+	if !agentResourceAllowed(req.Resource, envelope) {
+		return denyDecision(fmt.Sprintf("deny: agent '%s' is not allowed to access resource '%s'", req.Agent, req.Resource))
+	}
+
+	if !agentActionAllowed(req.Action, envelope) {
+		return denyDecision(fmt.Sprintf("deny: agent '%s' cannot perform action '%s'", req.Agent, req.Action))
+	}
+
+	if e.exceedsMaxTier(req.RequestedTier, envelope.MaxTier) {
+		d := &types.Decision{
+			Decision: types.DecisionRequireApproval,
+			Reasons:  []string{fmt.Sprintf("approval: agent '%s' requested tier '%s' exceeds envelope max tier '%s'", req.Agent, req.RequestedTier, envelope.MaxTier)},
+		}
+		return d
+	}
+
+	return nil
+}
+
+func denyDecision(reason string) *types.Decision {
+	return &types.Decision{
+		Decision: types.DecisionDeny,
+		Reasons:  []string{reason},
+	}
 }
 
 func (e *Engine) exceedsMaxTier(requested types.SafetyTier, max types.SafetyTier) bool {
@@ -181,6 +239,44 @@ func (e *Engine) resourceAllowedForRole(resource string, role *types.Role) bool 
 func (e *Engine) tierAllowedForRole(tier types.SafetyTier, role *types.Role) bool {
 	for _, t := range role.AllowedTiers {
 		if t == tier {
+			return true
+		}
+	}
+	return false
+}
+
+// findAgentEnvelope returns the envelope with the matching name, or nil.
+func (e *Engine) findAgentEnvelope(name string) *types.AgentEnvelope {
+	for i := range e.policy.AgentEnvelopes {
+		if e.policy.AgentEnvelopes[i].Name == name {
+			return &e.policy.AgentEnvelopes[i]
+		}
+	}
+	return nil
+}
+
+// agentResourceAllowed checks whether the resource matches any pattern in the
+// envelope's allowed_resources list. Patterns ending with "/*" are treated as
+// prefix wildcards (e.g. "staging/*" matches "staging/payment-service").
+func agentResourceAllowed(resource string, envelope *types.AgentEnvelope) bool {
+	for _, pattern := range envelope.AllowedResources {
+		if pattern == resource {
+			return true
+		}
+		if len(pattern) > 1 && pattern[len(pattern)-2:] == "/*" {
+			prefix := pattern[:len(pattern)-1] // "staging/"
+			if len(resource) >= len(prefix) && resource[:len(prefix)] == prefix {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// agentActionAllowed checks if the action is in the envelope's allowed actions.
+func agentActionAllowed(action string, envelope *types.AgentEnvelope) bool {
+	for _, a := range envelope.AllowedActions {
+		if a == action {
 			return true
 		}
 	}

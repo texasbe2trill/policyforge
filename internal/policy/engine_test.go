@@ -41,6 +41,20 @@ func TestEngineEvaluate(t *testing.T) {
 			{Name: "prod/service", RequiresApproval: true},
 			{Name: "staging/service", RequiresApproval: false},
 		},
+		AgentEnvelopes: []types.AgentEnvelope{
+			{
+				Name:             "staging-bot",
+				AllowedResources: []string{"staging/*"},
+				AllowedActions:   []string{"read", "restart"},
+				MaxTier:          "supervised_write",
+			},
+			{
+				Name:             "read-only-bot",
+				AllowedResources: []string{"staging/service"},
+				AllowedActions:   []string{"read"},
+				MaxTier:          "read_only",
+			},
+		},
 	}
 
 	engine := New(policy)
@@ -187,6 +201,86 @@ func TestEngineEvaluate(t *testing.T) {
 			name:             "deny: nil request",
 			request:          nil,
 			expectedDecision: types.DecisionDeny,
+			expectedReasons:  1,
+		},
+		// Agent envelope tests
+		{
+			name: "allow: agent with wildcard resource match",
+			request: &types.DecisionRequest{
+				Subject:       "bot",
+				Role:          "operator",
+				Resource:      "staging/service",
+				Action:        "restart",
+				RequestedTier: "read_only",
+				Agent:         "staging-bot",
+			},
+			expectedDecision: types.DecisionAllow,
+			expectedReasons:  1,
+		},
+		{
+			name: "deny: unknown agent",
+			request: &types.DecisionRequest{
+				Subject:       "bot",
+				Role:          "operator",
+				Resource:      "staging/service",
+				Action:        "read",
+				RequestedTier: "read_only",
+				Agent:         "unknown-bot",
+			},
+			expectedDecision: types.DecisionDeny,
+			expectedReasons:  1,
+		},
+		{
+			name: "deny: agent resource not allowed (prod resource, staging-only bot)",
+			request: &types.DecisionRequest{
+				Subject:       "bot",
+				Role:          "admin",
+				Resource:      "prod/service",
+				Action:        "read",
+				RequestedTier: "read_only",
+				Agent:         "staging-bot",
+			},
+			expectedDecision: types.DecisionDeny,
+			expectedReasons:  1,
+		},
+		{
+			name: "deny: agent action not allowed",
+			request: &types.DecisionRequest{
+				Subject:       "bot",
+				Role:          "operator",
+				Resource:      "staging/service",
+				Action:        "read",
+				RequestedTier: "read_only",
+				Agent:         "read-only-bot",
+			},
+			// read-only-bot allows "read" — this should actually pass
+			expectedDecision: types.DecisionAllow,
+			expectedReasons:  1,
+		},
+		{
+			name: "deny: agent action write not in envelope",
+			request: &types.DecisionRequest{
+				Subject:       "bot",
+				Role:          "admin",
+				Resource:      "staging/service",
+				Action:        "write",
+				RequestedTier: "read_only",
+				Agent:         "staging-bot",
+			},
+			expectedDecision: types.DecisionDeny,
+			expectedReasons:  1,
+		},
+		{
+			name: "require_approval: agent tier exceeds envelope max",
+			request: &types.DecisionRequest{
+				Subject:       "bot",
+				Role:          "admin",
+				Resource:      "staging/service",
+				Action:        "restart",
+				RequestedTier: "autonomous_write",
+				Agent:         "staging-bot",
+			},
+			expectedDecision: types.DecisionRequireApproval,
 			expectedReasons:  1,
 		},
 	}

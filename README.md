@@ -10,11 +10,16 @@ Every decision is logged to an append-only audit file — no setup required.
 
 ---
 
+![PolicyForge demo](demo.gif)
+
+---
+
 ## Table of Contents
 
 - [How It Works](#how-it-works)
 - [Quick Start (5 Minutes)](#quick-start-5-minutes)
 - [CLI Reference](#cli-reference)
+- [Agent Policy Envelopes](#agent-policy-envelopes)
 - [REST API](#rest-api)
 - [Policy Configuration](#policy-configuration)
 - [Decision Logic](#decision-logic)
@@ -111,6 +116,7 @@ go run ./cmd/policyforge [flags]
 | `--action`      | *(required if no --input)* | Action being performed                                                  |
 | `--tier`        | *(required if no --input)* | Requested safety tier                                                   |
 | `--auto-approve`| `false`                    | Converts a `require_approval` decision to `allow`                       |
+| `--agent`       | *(none)*                   | Agent envelope name to apply on top of RBAC                             |
 
 ### Using flags directly
 
@@ -134,6 +140,134 @@ go run ./cmd/policyforge --policy ./configs/policy.yaml --input ./examples/reque
 
 ```
 2026/04/04 18:31:31 invalid CLI request: missing required request fields: subject, resource, action, requested_tier
+```
+
+---
+
+## Agent Policy Envelopes
+
+An **agent** is a non-human identity — a remediation bot, CI pipeline, AI system, or any automated workflow. Because agents act autonomously, they operate inside a **policy envelope** that further restricts what they may do, on top of normal RBAC.
+
+If a request includes an `agent` field, **both** the role-based checks and the envelope checks must pass. Failing either returns a `deny` or `require_approval`.
+
+### Envelope definition
+
+Envelopes live in `configs/policy.yaml` under `agent_envelopes`:
+
+```yaml
+agent_envelopes:
+  - name: "remediation-bot"
+    allowed_resources:
+      - "staging/*"          # wildcard: matches any staging/ resource
+    allowed_actions:
+      - "read"
+      - "restart"
+    max_tier: "autonomous_write"
+    session_ttl_minutes: 30
+
+  - name: "prod-operator-bot"
+    allowed_resources:
+      - "prod/payment-service"
+    allowed_actions:
+      - "read"
+    max_tier: "read_only"
+    session_ttl_minutes: 15
+```
+
+`allowed_resources` supports `prefix/*` wildcard patterns. `max_tier` caps the envelope independently of the role's own cap.
+
+### CLI usage
+
+```bash
+# allow: remediation-bot restarts staging resource within its envelope
+go run ./cmd/policyforge \
+  --policy ./configs/policy.yaml \
+  --subject bot \
+  --role operator \
+  --resource staging/payment-service \
+  --action restart \
+  --tier read_only \
+  --agent remediation-bot
+```
+
+```json
+{
+  "decision": "allow",
+  "reasons": ["allow: all policy checks passed"],
+  "timestamp": "2026-04-05T00:25:51Z",
+  "request_id": "req-1775348751231064000",
+  "matched_resource": "staging/payment-service",
+  "evaluated_role": "operator"
+}
+```
+
+```bash
+# deny: remediation-bot tries to access a prod resource (outside its staging/* envelope)
+go run ./cmd/policyforge \
+  --policy ./configs/policy.yaml \
+  --subject bot \
+  --role operator \
+  --resource prod/payment-service \
+  --action read \
+  --tier read_only \
+  --agent remediation-bot
+```
+
+```json
+{
+  "decision": "deny",
+  "reasons": ["deny: agent 'remediation-bot' is not allowed to access resource 'prod/payment-service'"],
+  "timestamp": "2026-04-05T00:25:51Z",
+  "request_id": "req-1775348751288228000",
+  "matched_resource": "prod/payment-service",
+  "evaluated_role": "operator"
+}
+```
+
+```bash
+# deny: prod-operator-bot tries to restart (only 'read' is in its envelope)
+go run ./cmd/policyforge \
+  --policy ./configs/policy.yaml \
+  --subject bot \
+  --role operator \
+  --resource prod/payment-service \
+  --action restart \
+  --tier read_only \
+  --agent prod-operator-bot
+```
+
+```json
+{
+  "decision": "deny",
+  "reasons": ["deny: agent 'prod-operator-bot' cannot perform action 'restart'"],
+  "timestamp": "2026-04-05T00:26:04Z",
+  "request_id": "req-1775348764835152000",
+  "matched_resource": "prod/payment-service",
+  "evaluated_role": "operator"
+}
+```
+
+### API usage
+
+Include `agent` in the JSON body:
+
+```bash
+curl -X POST http://localhost:8080/evaluate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "bot",
+    "role": "operator",
+    "resource": "staging/payment-service",
+    "action": "restart",
+    "requested_tier": "read_only",
+    "agent": "remediation-bot"
+  }'
+```
+
+### Using a JSON input file
+
+```bash
+go run ./cmd/policyforge --policy ./configs/policy.yaml --input ./examples/request-agent.json
 ```
 
 ---
@@ -291,7 +425,8 @@ The engine evaluates every request against the same deterministic sequence of ch
 | 5 | Requested tier exists in policy | `deny` |
 | 6 | Requested tier is in role's `allowed_tiers` | `deny` |
 | 7 | Requested tier does not exceed role's `max_tier` | `require_approval` |
-| 8 | Resource `requires_approval: false` and tier `requires_approval: false` | `require_approval` |
+| 8 | Agent envelope: exists, resource allowed, action allowed, tier ≤ max | `deny` / `require_approval` |
+| 9 | Resource `requires_approval: false` and tier `requires_approval: false` | `require_approval` |
 | — | All checks pass | `allow` |
 
 **Reason messages are structured** so they are easy to parse:
@@ -504,13 +639,16 @@ policyforge/
 │   ├── request.json
 │   ├── request-allow.json
 │   ├── request-deny-action.json
-│   └── request-require-approval.json
+│   ├── request-require-approval.json
+│   └── request-agent.json               # Scenario: agent envelope
 ├── artifacts/
 │   ├── audit.jsonl             # Decision audit log (auto-created, gitignored)
 │   └── evidence/               # Evidence bundles (auto-created, gitignored)
 ├── Makefile
 ├── go.mod
 ├── go.sum
+├── demo.tape                   # VHS tape for re-recording the demo
+├── demo.gif                    # Animated terminal demo
 ├── LICENSE
 └── README.md
 ```
@@ -553,6 +691,15 @@ go build -o bin/policyforge-api ./cmd/policyforge-api
 ```bash
 go fmt ./...
 go vet ./...
+```
+
+### Re-record the demo
+
+Requires [VHS](https://github.com/charmbracelet/vhs) (`brew install vhs`):
+
+```bash
+make demo
+# builds bin/policyforge then runs vhs demo.tape → demo.gif
 ```
 
 ### Testing strategy

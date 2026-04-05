@@ -1,0 +1,8 @@
+{
+  "subject": "bot",
+  "role": "operator",
+  "resource": "staging/payment-service",
+  "action": "restart",
+  "requested_tier": "read_only",
+  "agent": "remediation-bot"
+}

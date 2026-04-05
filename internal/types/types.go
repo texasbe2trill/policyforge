@@ -37,11 +37,22 @@ type Tier struct {
 	RequiresApproval bool   `yaml:"requires_approval"`
 }
 
+// AgentEnvelope constrains what an automated agent (bot, AI, pipeline) may do
+// within a session, independent of RBAC. Both must pass for a decision to succeed.
+type AgentEnvelope struct {
+	Name             string     `yaml:"name"`
+	AllowedResources []string   `yaml:"allowed_resources"`
+	AllowedActions   []string   `yaml:"allowed_actions"`
+	MaxTier          SafetyTier `yaml:"max_tier"`
+	SessionTTL       int        `yaml:"session_ttl_minutes"`
+}
+
 // Policy defines the complete policy configuration.
 type Policy struct {
-	SafetyTiers []Tier     `yaml:"safety_tiers"`
-	Roles       []Role     `yaml:"roles"`
-	Resources   []Resource `yaml:"resources"`
+	SafetyTiers    []Tier          `yaml:"safety_tiers"`
+	Roles          []Role          `yaml:"roles"`
+	Resources      []Resource      `yaml:"resources"`
+	AgentEnvelopes []AgentEnvelope `yaml:"agent_envelopes"`
 }
 
 // DecisionRequest represents a request to evaluate against policy.
@@ -51,6 +62,7 @@ type DecisionRequest struct {
 	Resource      string     `json:"resource"`
 	Action        string     `json:"action"`
 	RequestedTier SafetyTier `json:"requested_tier"`
+	Agent         string     `json:"agent,omitempty"`
 }
 
 // Decision represents the result of a policy evaluation.
