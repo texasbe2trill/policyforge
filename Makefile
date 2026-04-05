@@ -18,4 +18,5 @@ demo:
 	vhs demo.tape
 
 lint:
-	@echo "lint target placeholder"
+	go vet ./...
+	gofmt -l . | (! grep .)
