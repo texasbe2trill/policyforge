@@ -1,7 +1,7 @@
 # PolicyForge
 
 [![CI](https://img.shields.io/github/actions/workflow/status/texasbe2trill/policyforge/ci.yml?branch=main&label=CI)](https://github.com/texasbe2trill/policyforge/actions/workflows/ci.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/texasbe2trill/policyforge)](https://goreportcard.com/report/github.com/texasbe2trill/policyforge)
+[![Go Report Card](https://goreportcard.com/badge/github.com/texasbe2trill/policyforge?cache=20260406)](https://goreportcard.com/report/github.com/texasbe2trill/policyforge)
 [![Go Reference](https://pkg.go.dev/badge/github.com/texasbe2trill/policyforge.svg)](https://pkg.go.dev/github.com/texasbe2trill/policyforge)
 [![Go Version](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
