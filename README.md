@@ -10,6 +10,8 @@ A policy-as-code engine for infrastructure access control. Define roles, resourc
 
 **No external dependencies. No database. Just Go and a YAML file.**
 
+⭐ If this project is useful or interesting, consider giving it a star — it helps others discover it.
+
 ---
 
 ## Why This Exists
