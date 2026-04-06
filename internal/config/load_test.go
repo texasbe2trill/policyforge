@@ -113,3 +113,25 @@ resources:
 		})
 	}
 }
+
+func TestLoadPolicyValid(t *testing.T) {
+	content := `
+safety_tiers:
+  - name: read_only
+roles:
+  - name: admin
+    max_tier: read_only
+resources:
+  - name: db
+`
+	tmpDir := t.TempDir()
+	path := filepath.Join(tmpDir, "policy.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write policy file: %v", err)
+	}
+
+	_, err := LoadPolicy(path)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
