@@ -156,8 +156,15 @@ go run ./cmd/policyforge [flags]
 | `--tier`              | *(required if no --input)* | Requested safety tier                                                   |
 | `--auto-approve`      | `false`                    | Converts a `require_approval` decision to `allow`                       |
 | `--agent`             | *(none)*                   | Agent envelope name to apply on top of RBAC                             |
+| `--drift-check`       | *(flag)*                   | Scan audit log for policy drift and exit                                |
+| `--list-approvals`    | *(flag)*                   | Print all approval records and exit                                     |
+| `--approve-id`        | *(none)*                   | Approve a pending request by approval ID                                |
+| `--reject-id`         | *(none)*                   | Reject a pending request by approval ID                                 |
+| `--decided-by`        | *(none)*                   | Name of person making the approval decision                             |
+| `--decision-note`     | *(none)*                   | Optional note for the approval decision                                 |
 | `--list-sessions`     | *(flag)*                   | Print all sessions from `artifacts/sessions.json` and exit              |
 | `--revoke-session-id` | *(none)*                   | Revoke the session with the given ID and exit                           |
+| `--version`           | *(flag)*                   | Print version and exit                                                  |
 
 ### Using flags directly
 
@@ -332,10 +339,12 @@ go run ./cmd/policyforge-api --addr :9090
 
 ### Endpoints
 
-| Method | Path        | Description                              |
-|--------|-------------|------------------------------------------|
-| `GET`  | `/health`   | Returns `{"status":"ok"}` when ready     |
-| `POST` | `/evaluate` | Evaluates a decision request             |
+| Method | Path               | Description                                |
+|--------|--------------------|--------------------------------------------|
+| `GET`  | `/health`          | Returns `{"status":"ok"}` when ready       |
+| `POST` | `/evaluate`        | Evaluates a decision request               |
+| `GET`  | `/sessions`        | List all sessions (admin role required)    |
+| `POST` | `/sessions/revoke` | Revoke a session by ID (admin role required) |
 
 ### POST /evaluate
 

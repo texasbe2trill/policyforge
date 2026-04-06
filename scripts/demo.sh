@@ -4,6 +4,8 @@ set -euo pipefail
 # PolicyForge CLI Demo Script
 # Runs through core evaluation scenarios, approval workflow, and drift detection.
 
+command -v jq >/dev/null 2>&1 || { echo "Error: jq is required but not installed. Install with: brew install jq" >&2; exit 1; }
+
 POLICY="./configs/policy.yaml"
 BIN="go run ./cmd/policyforge"
 

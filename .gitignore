@@ -13,6 +13,9 @@
 *.out
 *.cover
 
+# Log files
+*.log
+
 # Dependency directories
 vendor/
 

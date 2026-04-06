@@ -10,9 +10,8 @@ import (
 	"github.com/texasbe2trill/policyforge/internal/evidence"
 	"github.com/texasbe2trill/policyforge/internal/policy"
 	"github.com/texasbe2trill/policyforge/internal/types"
+	"github.com/texasbe2trill/policyforge/internal/version"
 )
-
-const policyVersion = "v0.1.0"
 
 // Result holds every output produced by a single policy evaluation.
 type Result struct {
@@ -108,7 +107,7 @@ func Evaluate(eng *policy.Engine, req types.DecisionRequest, opts EvalOpts) (*Re
 	controls := compliance.MapControls(req, decision.Decision)
 
 	evOpts := evidence.Options{
-		PolicyVersion:     policyVersion,
+		PolicyVersion:     version.Version,
 		AuditRecordHash:   auditHash,
 		PreviousAuditHash: prevHash,
 		SessionID:         opts.SessionID,

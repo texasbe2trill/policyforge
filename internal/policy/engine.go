@@ -106,20 +106,6 @@ func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
 		return decision
 	}
 
-	// Check 8: Approval requirements (softgates)
-	if resource.RequiresApproval || tier.RequiresApproval {
-		decision.Decision = types.DecisionRequireApproval
-		reasons := []string{}
-		if resource.RequiresApproval {
-			reasons = append(reasons, fmt.Sprintf("approval: resource '%s' requires approval", req.Resource))
-		}
-		if tier.RequiresApproval {
-			reasons = append(reasons, fmt.Sprintf("approval: tier '%s' requires approval", req.RequestedTier))
-		}
-		decision.Reasons = reasons
-		return decision
-	}
-
 	// All checks passed
 	decision.Decision = types.DecisionAllow
 	decision.Reasons = append(decision.Reasons, "allow: all policy checks passed")

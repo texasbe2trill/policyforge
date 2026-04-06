@@ -4,6 +4,8 @@ set -euo pipefail
 # PolicyForge API Demo Script
 # Starts the API server, runs evaluation scenarios, then shuts down.
 
+command -v jq >/dev/null 2>&1 || { echo "Error: jq is required but not installed. Install with: brew install jq" >&2; exit 1; }
+
 POLICY="./configs/policy.yaml"
 TOKENS="./configs/tokens.yaml"
 ADDR="127.0.0.1:18080"
