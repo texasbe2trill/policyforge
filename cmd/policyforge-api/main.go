@@ -14,13 +14,20 @@ import (
 	"github.com/texasbe2trill/policyforge/internal/service"
 	"github.com/texasbe2trill/policyforge/internal/session"
 	"github.com/texasbe2trill/policyforge/internal/types"
+	"github.com/texasbe2trill/policyforge/internal/version"
 )
 
 func main() {
 	policyFile := flag.String("policy", "configs/policy.yaml", "path to policy YAML file")
 	tokensFile := flag.String("tokens", "", "path to tokens YAML file (enables auth when set)")
 	addr := flag.String("addr", ":8080", "TCP address to listen on")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("policyforge-api " + version.Version)
+		return
+	}
 
 	p, err := config.LoadPolicy(*policyFile)
 	if err != nil {

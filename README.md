@@ -3,12 +3,61 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/texasbe2trill/policyforge/ci.yml?branch=main&label=CI)](https://github.com/texasbe2trill/policyforge/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/texasbe2trill/policyforge)](https://goreportcard.com/report/github.com/texasbe2trill/policyforge)
 [![Go Reference](https://pkg.go.dev/badge/github.com/texasbe2trill/policyforge.svg)](https://pkg.go.dev/github.com/texasbe2trill/policyforge)
-[![Go Version](https://img.shields.io/badge/go-1.21%2B-00ADD8?logo=go)](https://go.dev/)
+[![Go Version](https://img.shields.io/badge/go-1.26%2B-00ADD8?logo=go)](https://go.dev/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
-**PolicyForge** is a lightweight Go tool for enforcing access policies in infrastructure workflows. You define your roles, resources, and safety tiers in YAML. PolicyForge takes a request, checks it against those rules, and tells you whether to `allow` it, `deny` it, or `require_approval`.
+A policy-as-code engine for infrastructure access control. Define roles, resources, and safety tiers in YAML. PolicyForge evaluates requests and returns `allow`, `deny`, or `require_approval` — with tamper-evident audit logs, compliance evidence bundles, and drift detection built in.
 
-Every decision is logged to an append-only audit file — no setup required.
+**No external dependencies. No database. Just Go and a YAML file.**
+
+---
+
+## Why This Exists
+
+Infrastructure teams need a way to enforce access rules that is auditable, deterministic, and doesn't require a complex policy runtime. PolicyForge answers the question: *"Can this identity perform this action on this resource at this automation tier?"* — and produces a compliance-ready evidence trail for every answer.
+
+---
+
+## Key Features
+
+| Feature | Description |
+|---|---|
+| **RBAC + Safety Tiers** | Roles define allowed actions, resources, and automation tiers. A `max_tier` cap triggers approval when exceeded. |
+| **Agent Policy Envelopes** | Non-human identities (bots, CI, AI) operate inside envelopes that restrict scope independent of RBAC. |
+| **Tamper-Evident Audit Log** | Every decision is appended to a SHA-256 hash-chained JSONL file. |
+| **Evidence Bundles** | Each evaluation produces a compliance-ready JSON artifact with mapped controls (PCI-DSS). |
+| **Approval Workflow** | `require_approval` decisions create persistent records you can approve or reject. |
+| **Drift Detection** | Re-evaluates the audit log against the current policy to find decisions that would now be denied. |
+| **Session-Backed Auth** | Bearer token and OIDC stub authentication with session lifecycle management. |
+| **Agent TTL Enforcement** | Agent sessions expire after a configurable window — denied before engine evaluation. |
+| **CLI + API Parity** | Both interfaces use the same evaluation pipeline and produce identical outputs. |
+
+---
+
+## Design Themes
+
+This project demonstrates:
+
+- **Policy engine design** — deterministic evaluation with structured deny/approval/allow reasons
+- **Hash-chained audit logs** — tamper detection without a database
+- **Layered authorization** — RBAC + agent envelopes + safety tier caps
+- **Compliance automation** — evidence bundles with automatic control mapping
+- **Session security** — TTL enforcement, revocation, identity override to prevent escalation
+- **Drift detection** — post-hoc analysis of policy changes against historical decisions
+- **CLI/API parity** — shared service layer guarantees identical behavior
+
+---
+
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for the full system diagram and package breakdown.
+
+```
+Request → Auth → Identity Override → Agent TTL Check → Policy Engine → Decision
+                                                                        ├→ Audit Log (hash-chained)
+                                                                        ├→ Evidence Bundle
+                                                                        └→ Approval Record
+```
 
 ---
 
@@ -24,173 +73,73 @@ Every decision is logged to an append-only audit file — no setup required.
 
 ---
 
-## Table of Contents
-
-- [How It Works](#how-it-works)
-- [Quick Start (5 Minutes)](#quick-start-5-minutes)
-- [Bring Your Own Policy](#bring-your-own-policy)
-- [CLI Reference](#cli-reference)
-- [Agent Policy Envelopes](#agent-policy-envelopes)
-- [REST API](#rest-api)
-- [Authentication](#authentication)
-- [Sessions](#sessions)
-- [Agent Session TTL Enforcement](#agent-session-ttl-enforcement)
-- [Policy Configuration](#policy-configuration)
-- [Decision Logic](#decision-logic)
-- [Decision Response Schema](#decision-response-schema)
-- [Audit Logging](#audit-logging)
-- [Evidence Bundles](#evidence-bundles)
-- [Approval Flow](#approval-flow)
-- [Approval Persistence](#approval-persistence)
-- [Drift Detection](#drift-detection)
-- [Project Structure](#project-structure)
-- [Development](#development)
-
----
-
-## How It Works
-
-A **decision request** describes an action a subject wants to take:
-
-| Field            | Description                                      | Example                   |
-|------------------|--------------------------------------------------|---------------------------|
-| `subject`        | The identity making the request                  | `chris`                   |
-| `role`           | The role assigned to the subject                 | `operator`                |
-| `resource`       | The infrastructure resource being accessed       | `prod/payment-service`    |
-| `action`         | The operation being performed                    | `restart`                 |
-| `requested_tier` | The automation tier requested (`read_only`, `supervised_write`, `autonomous_write`) | `supervised_write` |
-
-The engine evaluates the request against your policy and returns a **decision**:
-
-| Decision           | Meaning                                                      |
-|--------------------|--------------------------------------------------------------|
-| `allow`            | All checks passed. The action is permitted.                  |
-| `deny`             | A hard rule was violated. The action is blocked.             |
-| `require_approval` | Checks passed but the resource or tier requires human sign-off. |
-
----
-
-## Quick Start (5 Minutes)
-
-### 1. Prerequisites
-
-- Go 1.26 or later installed ([go.dev/dl](https://go.dev/dl/))
-- This repository cloned locally
-
-### 2. Clone and run your first evaluation
+## Quick Start
 
 ```bash
 git clone https://github.com/texasbe2trill/policyforge.git
 cd policyforge
+go test ./...
 ```
 
-Run three built-in scenarios back to back:
+Run three scenarios:
 
 ```bash
-# Scenario A — allow: read-only viewer reads staging service
-go run ./cmd/policyforge --policy ./configs/policy.yaml --input ./examples/request-allow.json
+# Allow — viewer reads staging
+go run ./cmd/policyforge --policy ./configs/policy.yaml \
+  --subject alice --role viewer --resource staging/payment-service \
+  --action read --tier read_only
 
-# Scenario B — deny: viewer attempts restart (not in their allowed actions)
-go run ./cmd/policyforge --policy ./configs/policy.yaml --input ./examples/request-deny-action.json
+# Deny — viewer attempts restart
+go run ./cmd/policyforge --policy ./configs/policy.yaml \
+  --subject alice --role viewer --resource staging/payment-service \
+  --action restart --tier read_only
 
-# Scenario C — require_approval: operator restarts prod (protected resource + supervised tier)
-go run ./cmd/policyforge --policy ./configs/policy.yaml --input ./examples/request-require-approval.json
+# Require approval — operator restarts prod
+go run ./cmd/policyforge --policy ./configs/policy.yaml \
+  --subject chris --role operator --resource prod/payment-service \
+  --action restart --tier supervised_write
 ```
 
-### 3. Auto-approve the approval scenario
+Or run the full demo:
 
 ```bash
-go run ./cmd/policyforge \
-  --policy ./configs/policy.yaml \
-  --input ./examples/request-require-approval.json \
-  --auto-approve
+make demo-cli    # CLI scenarios, approvals, drift detection
+make demo-api    # API server with authenticated requests
 ```
 
-### 4. Inspect the audit log
+---
 
-Every command above appended a record to the audit log:
+## Policy Packs
+
+Ready-to-use policy configurations for common scenarios in [`examples/policy-packs/`](examples/policy-packs/):
+
+| Pack | Use Case |
+|---|---|
+| `pci-demo.yaml` | PCI-DSS-aligned environment with strict prod controls |
+| `prod-sre.yaml` | SRE team with tiered escalation |
+| `ci-agent.yaml` | CI/CD pipeline agents with narrow, time-boxed permissions |
+| `breakglass-admin.yaml` | Emergency access with mandatory approval on every action |
 
 ```bash
-tail -n 3 artifacts/audit.jsonl
+cp examples/policy-packs/pci-demo.yaml configs/policy.yaml
+go run ./cmd/policyforge --policy configs/policy.yaml --drift-check
 ```
+
+---
+
+## Sample Outputs
+
+Static examples of every response type are in [`docs/samples/`](docs/samples/):
+
+- [`allow-response.json`](docs/samples/allow-response.json) — Clean pass
+- [`deny-response.json`](docs/samples/deny-response.json) — Hard deny with reason
+- [`approval-response.json`](docs/samples/approval-response.json) — Soft gate requiring approval
+- [`drift-findings.json`](docs/samples/drift-findings.json) — Drift detection finding
+- [`evidence-bundle.json`](docs/samples/evidence-bundle.json) — Full compliance evidence bundle
 
 ---
 
 ## Bring Your Own Policy
-
-The examples use a pre-built policy. To enforce your own rules, you only need to edit one file.
-
-### 1. Copy the example policy
-
-```bash
-cp configs/policy.yaml configs/my-policy.yaml
-```
-
-### 2. Define your resources
-
-Add every infrastructure target you want to protect:
-
-```yaml
-resources:
-  - name: "prod/database"
-    requires_approval: true
-  - name: "staging/database"
-    requires_approval: false
-  - name: "prod/api"
-    requires_approval: true
-```
-
-### 3. Define your roles
-
-Map your team roles to allowed actions, tiers, and resources:
-
-```yaml
-roles:
-  - name: "developer"
-    allowed_actions: ["read", "deploy"]
-    allowed_tiers:   ["read_only", "supervised_write"]
-    max_tier:        "supervised_write"
-    allowed_resources:
-      - "staging/database"
-
-  - name: "sre"
-    allowed_actions: ["read", "deploy", "restart", "scale"]
-    allowed_tiers:   ["read_only", "supervised_write", "autonomous_write"]
-    max_tier:        "autonomous_write"
-    allowed_resources:
-      - "prod/database"
-      - "prod/api"
-      - "staging/database"
-```
-
-### 4. Evaluate requests
-
-Pass your policy path to any command:
-
-```bash
-# via flags
-go run ./cmd/policyforge \
-  --policy configs/my-policy.yaml \
-  --subject alice \
-  --role developer \
-  --resource staging/database \
-  --action deploy \
-  --tier supervised_write
-
-# via a JSON file
-go run ./cmd/policyforge --policy configs/my-policy.yaml --input my-request.json
-
-# via the API
-go run ./cmd/policyforge-api --policy configs/my-policy.yaml
-```
-
-Audit records and evidence bundles are written automatically to `artifacts/` for every evaluation.
-
-> **Tip:** Start with `requires_approval: true` on all production resources until you've validated your role definitions. You can always loosen the policy once you've reviewed a few audit log entries.
-
----
-
-## CLI Reference
 
 ```
 go run ./cmd/policyforge [flags]
@@ -1019,55 +968,36 @@ policyforge/
 │       ├── main.go             # HTTP API entry point
 │       └── handler_test.go     # API handler tests
 ├── internal/
-│   ├── approval/
-│   │   ├── types.go            # Approval status constants and Record struct
-│   │   ├── store.go            # JSON-backed approval CRUD with atomic writes
-│   │   └── store_test.go       # Approval store tests
-│   ├── audit/
-│   │   └── logger.go           # Append-only JSONL audit writer with hash chain
-│   ├── compliance/
-│   │   └── mapping.go          # Compliance control mapping (PCI-DSS etc.)
-│   ├── config/
-│   │   ├── load.go             # YAML policy loader with validation
-│   │   ├── request.go          # JSON request loader with field validation
-│   │   └── request_test.go     # Request loader tests
-│   ├── drift/
-│   │   ├── types.go            # DriftType, Severity constants and Finding struct
-│   │   ├── detector.go         # Re-evaluate audit log and detect policy drift
-│   │   └── detector_test.go    # Drift detector tests
-│   ├── evidence/
-│   │   ├── bundle.go           # Evidence bundle generation with CSV index
-│   │   └── bundle_test.go      # Evidence bundle tests
-│   ├── policy/
-│   │   ├── engine.go           # Deterministic evaluation engine
-│   │   └── engine_test.go      # Table-driven engine tests
-│   ├── service/
-│   │   └── evaluator.go        # Shared evaluation pipeline (CLI + API parity)
-│   └── types/
-│       └── types.go            # Shared domain types
+│   ├── approval/               # Approval CRUD with JSON persistence
+│   ├── audit/                  # Append-only JSONL logger with hash chain
+│   ├── auth/                   # Bearer token auth, OIDC stub, middleware
+│   ├── compliance/             # PCI-DSS control mapping
+│   ├── config/                 # YAML policy + JSON request loaders
+│   ├── drift/                  # Post-hoc drift detection
+│   ├── evidence/               # Evidence bundle generation + CSV index
+│   ├── policy/                 # Deterministic evaluation engine
+│   ├── service/                # Shared evaluation pipeline (CLI + API)
+│   ├── session/                # Session lifecycle management
+│   ├── types/                  # Shared domain types
+│   └── version/                # Version constant
 ├── configs/
-│   └── policy.yaml             # Default policy definition
+│   ├── policy.yaml             # Default policy
+│   └── tokens.yaml             # Token definitions (for auth mode)
 ├── examples/
-│   ├── request.json
-│   ├── request-allow.json
-│   ├── request-deny-action.json
-│   ├── request-require-approval.json
-│   └── request-agent.json               # Scenario: agent envelope
-├── artifacts/
-│   ├── audit.jsonl             # Decision audit log (auto-created, gitignored)
-│   ├── approvals.json          # Pending/decided approvals (auto-created, gitignored)
-│   ├── drift/
-│   │   └── findings.json       # Drift findings from last run (auto-created, gitignored)
-│   └── evidence/               # Evidence bundles (auto-created, gitignored)
-│       └── index.csv           # CSV index of all evidence bundles
+│   ├── policy-packs/           # Ready-to-use policy configurations
+│   └── *.json                  # Request examples
+├── docs/
+│   ├── architecture.md         # System diagram and package breakdown
+│   ├── overview.md             # Project overview
+│   └── samples/                # Static sample outputs
+├── scripts/
+│   ├── demo.sh                 # CLI demo script
+│   └── demo-api.sh             # API demo script
+├── artifacts/                  # Runtime outputs (gitignored)
 ├── Makefile
-├── go.mod
-├── go.sum
-├── demo.tape                   # VHS tape — core evaluation demo
-├── demo-approvals.tape         # VHS tape — approval workflow + drift demo
-├── demo-auth.tape              # VHS tape — identity & sessions demo
-├── demo.gif                    # Animated terminal demo
-├── LICENSE
+├── CONTRIBUTING.md
+├── ROADMAP.md
+├── SECURITY.md
 └── README.md
 ```
 
@@ -1075,27 +1005,25 @@ policyforge/
 
 ## Development
 
-### Run tests
-
 ```bash
-go test ./...          # all packages
-go test ./... -v       # verbose output
-go test -cover ./...   # with coverage
+make test       # run all tests
+make lint       # go vet + gofmt check
+make build      # build binaries to bin/
+make version    # print current version
+make fmt        # format all Go files
+make vet        # run go vet
+make demo-cli   # run CLI demo script
+make demo-api   # run API demo script
+make drift      # run drift detection
+make approvals  # list pending approvals
+make sessions   # list sessions
 ```
 
 ### Start the API server
 
 ```bash
-make api           # unauthenticated (backward compat)
-make api-auth      # with bearer-token auth (configs/tokens.yaml)
-make run-api-debug-oidc  # with debug OIDC enabled
-```
-
-### Build binaries
-
-```bash
-make build
-# produces bin/policyforge and bin/policyforge-api
+make api           # unauthenticated
+make api-auth      # with bearer token auth
 ```
 
 Or directly:

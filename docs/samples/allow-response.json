@@ -1,0 +1,10 @@
+{
+  "decision": "allow",
+  "reasons": [
+    "allow: all policy checks passed"
+  ],
+  "timestamp": "2026-04-05T00:00:00Z",
+  "request_id": "req-1775346112600030000",
+  "matched_resource": "staging/payment-service",
+  "evaluated_role": "viewer"
+}

@@ -1,4 +1,4 @@
-.PHONY: run api api-auth run-api-debug-oidc test build lint demo demo-approvals demo-auth drift approvals sessions
+.PHONY: run api api-auth run-api-debug-oidc test build lint demo demo-approvals demo-auth demo-cli demo-api drift approvals sessions version fmt vet
 
 run:
 	go run ./cmd/policyforge
@@ -41,3 +41,18 @@ approvals:
 
 sessions:
 	go run ./cmd/policyforge --list-sessions
+
+demo-cli:
+	bash scripts/demo.sh
+
+demo-api:
+	bash scripts/demo-api.sh
+
+version:
+	@go run ./cmd/policyforge --version
+
+fmt:
+	gofmt -w .
+
+vet:
+	go vet ./...

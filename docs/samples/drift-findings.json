@@ -1,0 +1,17 @@
+[
+  {
+    "finding_id": "drift-1775349830126355000",
+    "timestamp": "2026-04-05T01:00:00Z",
+    "request_id": "req-1775346112600030000",
+    "subject": "alice",
+    "role": "viewer",
+    "resource": "staging/payment-service",
+    "action": "restart",
+    "requested_tier": "read_only",
+    "observed_decision": "allow",
+    "expected_decision": "deny",
+    "severity": "high",
+    "drift_type": "unauthorized_action",
+    "message": "request was allowed but current policy would deny: deny: action 'restart' is not allowed for role 'viewer'"
+  }
+]

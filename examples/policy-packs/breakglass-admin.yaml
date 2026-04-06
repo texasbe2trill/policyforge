@@ -1,0 +1,52 @@
+# Break-Glass Admin Policy
+# Emergency access model. Every action on every resource requires approval,
+# creating a full audit trail even for admin-level access. Use this when
+# you need maximum accountability during incident response.
+
+safety_tiers:
+  - name: "read_only"
+    requires_approval: true
+  - name: "supervised_write"
+    requires_approval: true
+  - name: "autonomous_write"
+    requires_approval: true
+
+roles:
+  - name: "incident-commander"
+    allowed_actions: ["read", "write", "restart", "scale", "deploy", "rollback"]
+    allowed_tiers: ["read_only", "supervised_write", "autonomous_write"]
+    max_tier: "autonomous_write"
+    allowed_resources:
+      - "prod/database"
+      - "prod/api"
+      - "prod/cache"
+      - "prod/queue"
+
+  - name: "responder"
+    allowed_actions: ["read", "restart"]
+    allowed_tiers: ["read_only", "supervised_write"]
+    max_tier: "supervised_write"
+    allowed_resources:
+      - "prod/api"
+      - "prod/cache"
+      - "prod/queue"
+
+resources:
+  - name: "prod/database"
+    requires_approval: true
+  - name: "prod/api"
+    requires_approval: true
+  - name: "prod/cache"
+    requires_approval: true
+  - name: "prod/queue"
+    requires_approval: true
+
+agent_envelopes:
+  - name: "incident-bot"
+    allowed_resources:
+      - "prod/*"
+    allowed_actions:
+      - "read"
+      - "restart"
+    max_tier: "supervised_write"
+    session_ttl_minutes: 15

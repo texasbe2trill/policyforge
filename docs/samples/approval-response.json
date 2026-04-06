@@ -1,0 +1,11 @@
+{
+  "decision": "require_approval",
+  "reasons": [
+    "approval: resource 'prod/payment-service' requires approval",
+    "approval: tier 'supervised_write' requires approval"
+  ],
+  "timestamp": "2026-04-05T00:06:38Z",
+  "request_id": "req-1775347598162694000",
+  "matched_resource": "prod/payment-service",
+  "evaluated_role": "operator"
+}

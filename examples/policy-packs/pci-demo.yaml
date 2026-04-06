@@ -1,0 +1,64 @@
+# PCI-DSS Demo Policy
+# Strict production controls with mandatory approval on all prod resources
+# and supervised/autonomous tiers. Suitable for payment processing environments.
+
+safety_tiers:
+  - name: "read_only"
+    requires_approval: false
+  - name: "supervised_write"
+    requires_approval: true
+  - name: "autonomous_write"
+    requires_approval: true
+
+roles:
+  - name: "security-admin"
+    allowed_actions: ["read", "write", "restart", "scale", "deploy"]
+    allowed_tiers: ["read_only", "supervised_write", "autonomous_write"]
+    max_tier: "autonomous_write"
+    allowed_resources:
+      - "prod/cardholder-db"
+      - "prod/payment-gateway"
+      - "prod/tokenization-service"
+      - "staging/cardholder-db"
+      - "staging/payment-gateway"
+
+  - name: "developer"
+    allowed_actions: ["read", "deploy"]
+    allowed_tiers: ["read_only", "supervised_write"]
+    max_tier: "supervised_write"
+    allowed_resources:
+      - "staging/cardholder-db"
+      - "staging/payment-gateway"
+
+  - name: "auditor"
+    allowed_actions: ["read"]
+    allowed_tiers: ["read_only"]
+    max_tier: "read_only"
+    allowed_resources:
+      - "prod/cardholder-db"
+      - "prod/payment-gateway"
+      - "prod/tokenization-service"
+      - "staging/cardholder-db"
+      - "staging/payment-gateway"
+
+resources:
+  - name: "prod/cardholder-db"
+    requires_approval: true
+  - name: "prod/payment-gateway"
+    requires_approval: true
+  - name: "prod/tokenization-service"
+    requires_approval: true
+  - name: "staging/cardholder-db"
+    requires_approval: false
+  - name: "staging/payment-gateway"
+    requires_approval: false
+
+agent_envelopes:
+  - name: "vault-rotation-agent"
+    allowed_resources:
+      - "prod/tokenization-service"
+    allowed_actions:
+      - "read"
+      - "write"
+    max_tier: "supervised_write"
+    session_ttl_minutes: 10

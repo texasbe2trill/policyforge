@@ -1,0 +1,62 @@
+# CI/CD Agent Policy
+# Narrow, time-boxed permissions for pipeline agents. Human roles are
+# limited to read access; agents get deploy rights within strict envelopes.
+
+safety_tiers:
+  - name: "read_only"
+    requires_approval: false
+  - name: "supervised_write"
+    requires_approval: true
+  - name: "autonomous_write"
+    requires_approval: false
+
+roles:
+  - name: "pipeline"
+    allowed_actions: ["read", "deploy", "test"]
+    allowed_tiers: ["read_only", "autonomous_write"]
+    max_tier: "autonomous_write"
+    allowed_resources:
+      - "staging/app"
+      - "staging/worker"
+      - "prod/app"
+      - "prod/worker"
+
+  - name: "developer"
+    allowed_actions: ["read"]
+    allowed_tiers: ["read_only"]
+    max_tier: "read_only"
+    allowed_resources:
+      - "staging/app"
+      - "staging/worker"
+      - "prod/app"
+      - "prod/worker"
+
+resources:
+  - name: "staging/app"
+    requires_approval: false
+  - name: "staging/worker"
+    requires_approval: false
+  - name: "prod/app"
+    requires_approval: true
+  - name: "prod/worker"
+    requires_approval: true
+
+agent_envelopes:
+  - name: "ci-deploy-agent"
+    allowed_resources:
+      - "staging/*"
+    allowed_actions:
+      - "deploy"
+      - "test"
+      - "read"
+    max_tier: "autonomous_write"
+    session_ttl_minutes: 15
+
+  - name: "cd-promote-agent"
+    allowed_resources:
+      - "prod/*"
+    allowed_actions:
+      - "deploy"
+      - "read"
+    max_tier: "supervised_write"
+    session_ttl_minutes: 10

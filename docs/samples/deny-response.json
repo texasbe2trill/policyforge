@@ -1,0 +1,10 @@
+{
+  "decision": "deny",
+  "reasons": [
+    "deny: action 'restart' is not allowed for role 'viewer'"
+  ],
+  "timestamp": "2026-04-05T00:00:00Z",
+  "request_id": "req-1775346112640457000",
+  "matched_resource": "staging/payment-service",
+  "evaluated_role": "viewer"
+}
