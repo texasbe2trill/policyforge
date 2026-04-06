@@ -18,6 +18,10 @@ Every decision is logged to an append-only audit file — no setup required.
 
 ![PolicyForge approval workflow demo](artifacts/demo-approvals.gif)
 
+**Identity & sessions — bearer token auth, session revocation, debug OIDC:**
+
+![PolicyForge auth demo](artifacts/demo-auth.gif)
+
 ---
 
 ## Table of Contents
@@ -28,6 +32,9 @@ Every decision is logged to an append-only audit file — no setup required.
 - [CLI Reference](#cli-reference)
 - [Agent Policy Envelopes](#agent-policy-envelopes)
 - [REST API](#rest-api)
+- [Authentication](#authentication)
+- [Sessions](#sessions)
+- [Agent Session TTL Enforcement](#agent-session-ttl-enforcement)
 - [Policy Configuration](#policy-configuration)
 - [Decision Logic](#decision-logic)
 - [Decision Response Schema](#decision-response-schema)
@@ -189,17 +196,19 @@ Audit records and evidence bundles are written automatically to `artifacts/` for
 go run ./cmd/policyforge [flags]
 ```
 
-| Flag            | Default                    | Description                                                             |
-|-----------------|----------------------------|-------------------------------------------------------------------------|
-| `--policy`      | `configs/policy.yaml`      | Path to the policy YAML file                                            |
-| `--input`       | *(none)*                   | Path to a JSON request file. Overrides all individual request flags.    |
-| `--subject`     | *(required if no --input)* | Identity making the request                                             |
-| `--role`        | *(required if no --input)* | Role assigned to the subject                                            |
-| `--resource`    | *(required if no --input)* | Resource being accessed                                                 |
-| `--action`      | *(required if no --input)* | Action being performed                                                  |
-| `--tier`        | *(required if no --input)* | Requested safety tier                                                   |
-| `--auto-approve`| `false`                    | Converts a `require_approval` decision to `allow`                       |
-| `--agent`       | *(none)*                   | Agent envelope name to apply on top of RBAC                             |
+| Flag                  | Default                    | Description                                                             |
+|-----------------------|----------------------------|-------------------------------------------------------------------------|
+| `--policy`            | `configs/policy.yaml`      | Path to the policy YAML file                                            |
+| `--input`             | *(none)*                   | Path to a JSON request file. Overrides all individual request flags.    |
+| `--subject`           | *(required if no --input)* | Identity making the request                                             |
+| `--role`              | *(required if no --input)* | Role assigned to the subject                                            |
+| `--resource`          | *(required if no --input)* | Resource being accessed                                                 |
+| `--action`            | *(required if no --input)* | Action being performed                                                  |
+| `--tier`              | *(required if no --input)* | Requested safety tier                                                   |
+| `--auto-approve`      | `false`                    | Converts a `require_approval` decision to `allow`                       |
+| `--agent`             | *(none)*                   | Agent envelope name to apply on top of RBAC                             |
+| `--list-sessions`     | *(flag)*                   | Print all sessions from `artifacts/sessions.json` and exit              |
+| `--revoke-session-id` | *(none)*                   | Revoke the session with the given ID and exit                           |
 
 ### Using flags directly
 
@@ -418,6 +427,174 @@ curl -X POST "http://localhost:8080/evaluate?auto_approve=true" \
 ```
 
 Every API request produces an audit log entry and evidence bundle, identical to the CLI.
+
+---
+
+## Authentication
+
+By default the API runs **unauthenticated** (backward compatible). Pass `--tokens` to enable bearer-token auth:
+
+```bash
+go run ./cmd/policyforge-api \
+  --policy ./configs/policy.yaml \
+  --tokens ./configs/tokens.yaml
+```
+
+### tokens.yaml format
+
+```yaml
+tokens:
+  - token: "dev-admin-token"
+    subject: "chris"
+    role: "admin"
+    auth_type: "local_token"
+
+  - token: "operator-token"
+    subject: "alex"
+    role: "operator"
+    auth_type: "local_token"
+
+  - token: "agent-remediation-token"
+    subject: "policyforge-agent"
+    agent: "remediation-bot"
+    role: "operator"
+    auth_type: "agent_token"
+```
+
+### Bearer token usage
+
+Pass the token in the `Authorization` header:
+
+```bash
+curl -X POST http://localhost:8080/evaluate \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resource": "prod/payment-service",
+    "action": "restart",
+    "requested_tier": "supervised_write"
+  }'
+```
+
+When auth is enabled, `subject`, `role`, and `agent` are **always sourced from the token** — request body identity fields are overridden. This prevents callers from escalating their own privileges.
+
+### Debug OIDC mode
+
+For local development without a real OIDC provider, set the environment variable `POLICYFORGE_ENABLE_DEBUG_OIDC=true`. This enables the `X-Debug-OIDC-Subject` and `X-Debug-OIDC-Role` request headers as an auth path:
+
+```bash
+POLICYFORGE_ENABLE_DEBUG_OIDC=true go run ./cmd/policyforge-api \
+  --policy ./configs/policy.yaml --tokens ./configs/tokens.yaml
+
+# Then from another terminal:
+curl -X POST http://localhost:8080/evaluate \
+  -H "X-Debug-OIDC-Subject: chris" \
+  -H "X-Debug-OIDC-Role: admin" \
+  -H "Content-Type: application/json" \
+  -d '{"resource":"staging/payment-service","action":"read","requested_tier":"read_only"}'
+```
+
+> **Never enable debug OIDC in production.** The env var is intentionally verbose to make accidental enablement obvious.
+
+### Session endpoints (admin only)
+
+When auth is enabled, two session-management endpoints are available:
+
+| Method | Path               | Description                                |
+|--------|--------------------|-----------------------------------------|
+| `GET`  | `/sessions`        | List all sessions (admin role required)    |
+| `POST` | `/sessions/revoke` | Revoke a session by ID (admin role required) |
+
+```bash
+# List all sessions
+curl -H "Authorization: Bearer dev-admin-token" http://localhost:8080/sessions
+
+# Revoke a session
+curl -X POST http://localhost:8080/sessions/revoke \
+  -H "Authorization: Bearer dev-admin-token" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "<id>"}'
+```
+
+Non-admin requests to these endpoints return `403 Forbidden`.
+
+---
+
+## Sessions
+
+Every authenticated request is backed by a **session** — a persistent record stored in `artifacts/sessions.json`.
+
+### Session lifecycle
+
+1. First request with a valid token → a new session is created with an `issued_at` timestamp and TTL.
+2. Subsequent requests with the same token → the existing active session is reused (no new row per request).
+3. A revoked session → all future requests with that token return `401 Unauthorized`.
+
+### Session record fields
+
+```json
+{
+  "session_id": "sess-1775400000000000000",
+  "subject": "chris",
+  "role": "admin",
+  "auth_type": "local_token",
+  "issued_at": "2026-04-05T00:00:00Z",
+  "expires_at": "2026-04-05T01:00:00Z",
+  "status": "active"
+}
+```
+
+| Field        | Description                                      |
+|--------------|--------------------------------------------------|
+| `session_id` | Unique ID for this session                       |
+| `subject`    | Authenticated user or service identity           |
+| `role`       | Role at session creation time                    |
+| `auth_type`  | `local_token`, `oidc_stub`, or `agent_token`     |
+| `issued_at`  | RFC3339 timestamp the session was created        |
+| `expires_at` | RFC3339 timestamp when the session expires       |
+| `status`     | `active`, `expired`, or `revoked`                |
+
+### Default TTLs
+
+| Auth type     | Default TTL |
+|---------------|-------------|
+| Human token   | 60 minutes  |
+| Agent token   | 30 minutes (or `session_ttl_minutes` from envelope) |
+
+### CLI session commands
+
+```bash
+# List all sessions
+go run ./cmd/policyforge --list-sessions
+
+# Revoke a specific session
+go run ./cmd/policyforge --revoke-session-id sess-1775400000000000000
+```
+
+---
+
+## Agent Session TTL Enforcement
+
+Agent sessions have a time-bound window controlled by `session_ttl_minutes` in the agent envelope:
+
+```yaml
+agent_envelopes:
+  - name: "remediation-bot"
+    session_ttl_minutes: 30   # deny after 30 minutes from session issued_at
+```
+
+When an agent request arrives via the API with a valid token, the evaluator checks whether `time.Since(session.IssuedAt) > TTL`. If the TTL is exceeded, the request is **denied immediately** — before engine evaluation:
+
+```json
+{
+  "decision": "deny",
+  "reasons": ["deny: agent session for 'remediation-bot' exceeded TTL"],
+  "timestamp": "2026-04-05T00:35:00Z",
+  "request_id": "req-1775349300000000000"
+}
+```
+
+To continue, the operator must revoke the old session and re-authenticate (re-request with the token, which creates a fresh session).
 
 ---
 
@@ -888,6 +1065,7 @@ policyforge/
 ├── go.sum
 ├── demo.tape                   # VHS tape — core evaluation demo
 ├── demo-approvals.tape         # VHS tape — approval workflow + drift demo
+├── demo-auth.tape              # VHS tape — identity & sessions demo
 ├── demo.gif                    # Animated terminal demo
 ├── LICENSE
 └── README.md
@@ -908,8 +1086,9 @@ go test -cover ./...   # with coverage
 ### Start the API server
 
 ```bash
-make api
-# go run ./cmd/policyforge-api
+make api           # unauthenticated (backward compat)
+make api-auth      # with bearer-token auth (configs/tokens.yaml)
+make run-api-debug-oidc  # with debug OIDC enabled
 ```
 
 ### Build binaries
@@ -946,6 +1125,7 @@ make demo-approvals   # vhs demo-approvals.tape  → artifacts/demo-approvals.gi
 |------|--------------|
 | `demo.tape` | Core evaluation: allow, deny, require\_approval (auto), agent deny, audit log, evidence bundle |
 | `demo-approvals.tape` | Approval workflow + drift detection: submit → list → approve → drift check |
+| `demo-auth.tape` | Identity & sessions: bearer token auth, 401 enforcement, session list, revoke, debug OIDC |
 
 ### Testing strategy
 

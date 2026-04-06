@@ -26,6 +26,8 @@ type Options struct {
 	PolicyVersion     string
 	AuditRecordHash   string
 	PreviousAuditHash string
+	SessionID         string
+	AuthType          string
 }
 
 // EvidenceBundle is a compliance-ready record of a single policy evaluation.
@@ -48,6 +50,8 @@ type EvidenceBundle struct {
 	EvidenceType      string             `json:"evidence_type"`
 	AuditRecordHash   string             `json:"audit_record_hash,omitempty"`
 	PreviousAuditHash string             `json:"previous_audit_hash,omitempty"`
+	SessionID         string             `json:"session_id,omitempty"`
+	AuthType          string             `json:"auth_type,omitempty"`
 }
 
 // Generate builds an evidence bundle, persists it to
@@ -73,6 +77,8 @@ func Generate(result types.Decision, request types.DecisionRequest, controls []s
 		EvidenceType:      "policy_decision",
 		AuditRecordHash:   opts.AuditRecordHash,
 		PreviousAuditHash: opts.PreviousAuditHash,
+		SessionID:         opts.SessionID,
+		AuthType:          opts.AuthType,
 	}
 
 	if err := save(bundle); err != nil {

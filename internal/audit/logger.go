@@ -18,12 +18,18 @@ const (
 	auditFile = "audit.jsonl"
 )
 
+// Meta carries optional session/auth metadata to attach to the audit record.
+type Meta struct {
+	SessionID string
+	AuthType  string
+}
+
 // LogDecision appends a single tamper-evident decision record to the audit JSONL file.
 // Each record contains a SHA-256 hash of its key fields and the hash of the previous
 // record, forming a simple chain that makes undetected modification difficult.
 // It returns the hash of the newly written record so callers can embed it in
 // evidence bundles.
-func LogDecision(result types.Decision, request types.DecisionRequest) (string, string, error) {
+func LogDecision(result types.Decision, request types.DecisionRequest, meta Meta) (string, string, error) {
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
 		return "", "", fmt.Errorf("failed to create audit directory: %w", err)
 	}
@@ -41,6 +47,8 @@ func LogDecision(result types.Decision, request types.DecisionRequest) (string, 
 		Agent:         request.Agent,
 		Decision:      result.Decision,
 		Reasons:       result.Reasons,
+		SessionID:     meta.SessionID,
+		AuthType:      meta.AuthType,
 		PreviousHash:  lastAuditHash(path),
 	}
 	record.Hash = computeHash(record)

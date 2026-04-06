@@ -89,6 +89,8 @@ type AuditRecord struct {
 	Agent         string       `json:"agent,omitempty"`
 	Decision      DecisionType `json:"decision"`
 	Reasons       []string     `json:"reasons"`
+	SessionID     string       `json:"session_id,omitempty"`
+	AuthType      string       `json:"auth_type,omitempty"`
 	Hash          string       `json:"hash"`
 	PreviousHash  string       `json:"previous_hash,omitempty"`
 }

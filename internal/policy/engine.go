@@ -2,6 +2,7 @@ package policy
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/texasbe2trill/policyforge/internal/types"
 )
@@ -253,6 +254,21 @@ func (e *Engine) findAgentEnvelope(name string) *types.AgentEnvelope {
 		}
 	}
 	return nil
+}
+
+// AgentTTLExceeded reports whether the named agent's session has outlived its
+// configured session_ttl_minutes. Returns false if the agent has no envelope,
+// the envelope has no TTL, or issuedAtStr cannot be parsed.
+func (e *Engine) AgentTTLExceeded(agentName, issuedAtStr string) bool {
+	envelope := e.findAgentEnvelope(agentName)
+	if envelope == nil || envelope.SessionTTL == 0 {
+		return false
+	}
+	issuedAt, err := time.Parse(time.RFC3339, issuedAtStr)
+	if err != nil {
+		return false
+	}
+	return time.Since(issuedAt) > time.Duration(envelope.SessionTTL)*time.Minute
 }
 
 // agentResourceAllowed checks whether the resource matches any pattern in the
