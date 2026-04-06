@@ -83,7 +83,10 @@ func Evaluate(eng *policy.Engine, req types.DecisionRequest, opts EvalOpts) (*Re
 		if opts.AutoApprove {
 			rec.Status = approval.StatusApproved
 			rec.DecidedAt = decision.Timestamp
-			rec.DecidedBy = "cli-auto-approve"
+			rec.DecidedBy = opts.AutoApproveActor
+			if rec.DecidedBy == "" {
+				rec.DecidedBy = "auto-approve"
+			}
 		}
 		if err := approval.Create(rec); err != nil {
 			return nil, fmt.Errorf("failed to persist approval record: %w", err)
@@ -93,7 +96,11 @@ func Evaluate(eng *policy.Engine, req types.DecisionRequest, opts EvalOpts) (*Re
 
 	if requiredApproval && opts.AutoApprove {
 		decision.Decision = types.DecisionAllow
-		decision.Reasons = append(decision.Reasons, "auto-approved via CLI flag")
+		reason := opts.AutoApproveReason
+		if reason == "" {
+			reason = "auto-approved"
+		}
+		decision.Reasons = append(decision.Reasons, reason)
 	}
 
 	auditHash, prevHash, err := audit.LogDecision(*decision, req, audit.Meta{

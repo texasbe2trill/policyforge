@@ -89,7 +89,9 @@ func evaluateHandler(eng *policy.Engine) http.HandlerFunc {
 
 		// Build eval opts; override identity from auth context when present.
 		opts := service.EvalOpts{
-			AutoApprove: r.URL.Query().Get("auto_approve") == "true",
+			AutoApprove:       r.URL.Query().Get("auto_approve") == "true",
+			AutoApproveReason: "auto-approved via query parameter",
+			AutoApproveActor:  "api-auto-approve",
 		}
 		if id, ok := auth.GetIdentity(r.Context()); ok {
 			opts.SessionID = id.SessionID

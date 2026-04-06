@@ -8,6 +8,10 @@ package service
 type EvalOpts struct {
 	// AutoApprove rewrites require_approval to allow (CLI convenience).
 	AutoApprove bool
+	// AutoApproveReason is appended to decision reasons when auto-approve is active.
+	AutoApproveReason string
+	// AutoApproveActor is recorded as the approval decision actor for persisted records.
+	AutoApproveActor string
 
 	// Auth context — non-empty values override identity fields in DecisionRequest.
 	SessionID   string

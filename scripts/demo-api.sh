@@ -4,7 +4,12 @@ set -euo pipefail
 # PolicyForge API Demo Script
 # Starts the API server, runs evaluation scenarios, then shuts down.
 
-command -v jq >/dev/null 2>&1 || { echo "Error: jq is required but not installed. Install with: brew install jq" >&2; exit 1; }
+if command -v jq >/dev/null 2>&1; then
+  PRETTY_JSON=(jq .)
+else
+  PRETTY_JSON=(cat)
+  echo "Warning: jq not found; showing raw JSON output. Install with: brew install jq" >&2
+fi
 
 POLICY="./configs/policy.yaml"
 TOKENS="./configs/tokens.yaml"
@@ -19,6 +24,10 @@ section() {
   echo ""
 }
 
+pretty_json() {
+  "${PRETTY_JSON[@]}"
+}
+
 # ── Clean artifacts for a fresh run ─────────────────────────────────────────
 rm -f artifacts/audit.jsonl artifacts/approvals.json artifacts/sessions.json
 rm -rf artifacts/evidence artifacts/drift
@@ -28,7 +37,14 @@ section "Starting API server"
 go build -o /tmp/policyforge-api-demo ./cmd/policyforge-api
 /tmp/policyforge-api-demo --policy "$POLICY" --tokens "$TOKENS" --addr "$ADDR" &
 API_PID=$!
-trap "kill $API_PID 2>/dev/null; rm -f /tmp/policyforge-api-demo" EXIT
+cleanup() {
+  if kill -0 "$API_PID" >/dev/null 2>&1; then
+    kill "$API_PID" >/dev/null 2>&1 || true
+    wait "$API_PID" >/dev/null 2>&1 || true
+  fi
+  rm -f /tmp/policyforge-api-demo
+}
+trap cleanup EXIT
 
 # Wait for server to be ready
 for i in $(seq 1 30); do
@@ -45,7 +61,7 @@ done
 
 # ── Health check ───────────────────────────────────────────────────────────
 section "Health Check"
-curl -sf "${API_URL}/health" | jq .
+curl -sf "${API_URL}/health" | pretty_json
 
 # ── Unauthenticated request (should fail) ─────────────────────────────────
 section "Unauthenticated Request (401 expected)"
@@ -60,7 +76,7 @@ curl -sf "${API_URL}/evaluate" \
   -H "Authorization: Bearer dev-admin-token" \
   -H "Content-Type: application/json" \
   -d '{"resource":"staging/payment-service","action":"read","requested_tier":"read_only"}' \
-  | jq .
+  | pretty_json
 
 # ── Authenticated require_approval ────────────────────────────────────────
 section "Require Approval — operator restarts prod"
@@ -68,7 +84,7 @@ curl -sf "${API_URL}/evaluate" \
   -H "Authorization: Bearer operator-token" \
   -H "Content-Type: application/json" \
   -d '{"resource":"prod/payment-service","action":"restart","requested_tier":"supervised_write"}' \
-  | jq .
+  | pretty_json
 
 # ── Auto-approve via query param ──────────────────────────────────────────
 section "Auto-Approve via Query Param"
@@ -76,7 +92,7 @@ curl -sf "${API_URL}/evaluate?auto_approve=true" \
   -H "Authorization: Bearer operator-token" \
   -H "Content-Type: application/json" \
   -d '{"resource":"prod/payment-service","action":"restart","requested_tier":"supervised_write"}' \
-  | jq .
+  | pretty_json
 
 # ── Agent envelope ────────────────────────────────────────────────────────
 section "Agent Envelope — remediation-bot via token"
@@ -84,13 +100,13 @@ curl -sf "${API_URL}/evaluate" \
   -H "Authorization: Bearer agent-remediation-token" \
   -H "Content-Type: application/json" \
   -d '{"resource":"staging/payment-service","action":"restart","requested_tier":"read_only"}' \
-  | jq .
+  | pretty_json
 
 # ── Session list ──────────────────────────────────────────────────────────
 section "Session List (admin only)"
 curl -sf "${API_URL}/sessions" \
   -H "Authorization: Bearer dev-admin-token" \
-  | jq .
+  | pretty_json
 
 # ── Done ──────────────────────────────────────────────────────────────────
 section "Demo complete"

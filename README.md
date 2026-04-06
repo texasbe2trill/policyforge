@@ -50,18 +50,6 @@ This project demonstrates:
 
 ---
 
-## Architecture
-
-See [docs/architecture.md](docs/architecture.md) for the full system diagram and package breakdown.
-
-```
-Request → Auth → Identity Override → Agent TTL Check → Policy Engine → Decision
-                                                                        ├→ Audit Log (hash-chained)
-                                                                        ├→ Evidence Bundle
-                                                                        └→ Approval Record
-```
-
----
 
 ![PolicyForge demo](demo.gif)
 
@@ -102,12 +90,14 @@ go run ./cmd/policyforge --policy ./configs/policy.yaml \
   --action restart --tier supervised_write
 ```
 
-Or run the full demo:
+Or run the bundled demo scripts via Make:
 
 ```bash
-make demo-cli    # CLI scenarios, approvals, drift detection
-make demo-api    # API server with authenticated requests
+make demo-cli    # runs scripts/demo.sh
+make demo-api    # runs scripts/demo-api.sh
 ```
+
+These are Make targets, not standalone files. They do not require VHS. If `jq` is installed the JSON output is pretty-printed; otherwise the scripts fall back to raw JSON.
 
 ---
 
@@ -385,6 +375,8 @@ curl -X POST "http://localhost:8080/evaluate?auto_approve=true" \
   -H "Content-Type: application/json" \
   -d '{"subject":"chris","role":"operator","resource":"prod/payment-service","action":"restart","requested_tier":"supervised_write"}'
 ```
+
+When the query parameter is used, the response includes `"auto-approved via query parameter"` in the reasons list.
 
 Every API request produces an audit log entry and evidence bundle, identical to the CLI.
 
@@ -824,7 +816,7 @@ go run ./cmd/policyforge \
 ```
 
 ```
-Approval required — approval ID: apr-1775349830126355000
+Approval required -- approval ID: apr-1775349830126355000
 {
   "decision": "require_approval",
   ...
@@ -950,10 +942,10 @@ Findings are written to `artifacts/drift/findings.json` and printed to stdout.
 
 ## Approval Flow
 
-When a decision is `require_approval` the CLI prints a notification line before the JSON:
+When a decision is `require_approval` the CLI prints a notification line to stderr and writes the JSON response to stdout:
 
 ```
-Approval required
+Approval required -- approval ID: apr-1775349830126355000
 { ... }
 ```
 
@@ -1012,6 +1004,17 @@ policyforge/
 └── README.md
 ```
 
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for the full system diagram and package breakdown.
+
+```
+Request → Auth → Identity Override → Agent TTL Check → Policy Engine → Decision
+                                                                        ├→ Audit Log (hash-chained)
+                                                                        ├→ Evidence Bundle
+                                                                        └→ Approval Record
+```
+
 ---
 
 ## Development
@@ -1023,12 +1026,14 @@ make build      # build binaries to bin/
 make version    # print current version
 make fmt        # format all Go files
 make vet        # run go vet
-make demo-cli   # run CLI demo script
-make demo-api   # run API demo script
+make demo-cli   # runs scripts/demo.sh
+make demo-api   # runs scripts/demo-api.sh
 make drift      # run drift detection
 make approvals  # list pending approvals
 make sessions   # list sessions
 ```
+
+`make demo-cli` and `make demo-api` are scripted walkthroughs. Use `make api` or `make api-auth` when you want to start a long-running API server yourself.
 
 ### Start the API server
 
