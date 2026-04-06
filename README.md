@@ -1079,3 +1079,12 @@ All logic is covered by table-driven tests in `internal/policy/engine_test.go` a
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+---
+
+## Support
+
+If PolicyForge is useful to you, consider supporting development:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-texasbe2trill-FFDD00?logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/texasbe2trill)
+[![GitHub Sponsors](https://img.shields.io/badge/Sponsor-texasbe2trill-ea4aaa?logo=github-sponsors)](https://github.com/sponsors/texasbe2trill)
