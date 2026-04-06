@@ -65,11 +65,11 @@ Request → Auth → Identity Override → Agent TTL Check → Policy Engine →
 
 **Approval workflow + drift detection:**
 
-![PolicyForge approval workflow demo](artifacts/demo-approvals.gif)
+![PolicyForge approval workflow demo](demo-approvals.gif)
 
 **Identity & sessions — bearer token auth, session revocation, debug OIDC:**
 
-![PolicyForge auth demo](artifacts/demo-auth.gif)
+![PolicyForge auth demo](demo-auth.gif)
 
 ---
 
