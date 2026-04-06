@@ -35,73 +35,18 @@ type Result struct {
 //
 // Both the CLI and the REST API call this function so their outputs are identical.
 func Evaluate(eng *policy.Engine, req types.DecisionRequest, opts EvalOpts) (*Result, error) {
-	// 1. Override identity from authenticated context (API path only).
-	if opts.AuthSubject != "" {
-		req.Subject = opts.AuthSubject
-	}
-	if opts.AuthRole != "" {
-		req.Role = opts.AuthRole
-	}
-	if opts.AuthAgent != "" {
-		req.Agent = opts.AuthAgent
-	}
-
-	// 2. Engine decision — or TTL-deny if the agent session has exceeded its window.
-	// The TTL-deny flows through the full pipeline so it is audited and bundled.
-	var decision *types.Decision
-	if req.Agent != "" && opts.SessionIssuedAt != "" && eng.AgentTTLExceeded(req.Agent, opts.SessionIssuedAt) {
-		decision = &types.Decision{
-			Decision: types.DecisionDeny,
-			Reasons:  []string{fmt.Sprintf("deny: agent session for '%s' exceeded TTL", req.Agent)},
-		}
-	} else {
-		decision = eng.Evaluate(&req)
-	}
+	req = applyIdentityOverrides(req, opts)
+	decision := evaluateDecision(eng, req, opts)
 	requiredApproval := decision.Decision == types.DecisionRequireApproval
 
-	decision.Timestamp = time.Now().UTC().Format(time.RFC3339)
-	decision.RequestID = fmt.Sprintf("req-%d", time.Now().UTC().UnixNano())
-	decision.MatchedResource = req.Resource
-	decision.EvaluatedRole = req.Role
+	enrichDecision(decision, req)
 
-	// Persist approval record before potentially rewriting the decision.
-	var approvalRec *approval.Record
-	if requiredApproval {
-		rec := approval.Record{
-			ApprovalID:    approval.NewID(),
-			RequestID:     decision.RequestID,
-			Status:        approval.StatusPending,
-			Subject:       req.Subject,
-			Role:          req.Role,
-			Agent:         req.Agent,
-			Resource:      req.Resource,
-			Action:        req.Action,
-			RequestedTier: string(req.RequestedTier),
-			Reasons:       decision.Reasons,
-			RequestedAt:   decision.Timestamp,
-		}
-		if opts.AutoApprove {
-			rec.Status = approval.StatusApproved
-			rec.DecidedAt = decision.Timestamp
-			rec.DecidedBy = opts.AutoApproveActor
-			if rec.DecidedBy == "" {
-				rec.DecidedBy = "auto-approve"
-			}
-		}
-		if err := approval.Create(rec); err != nil {
-			return nil, fmt.Errorf("failed to persist approval record: %w", err)
-		}
-		approvalRec = &rec
+	approvalRec, err := persistApprovalRecord(req, decision, opts, requiredApproval)
+	if err != nil {
+		return nil, err
 	}
 
-	if requiredApproval && opts.AutoApprove {
-		decision.Decision = types.DecisionAllow
-		reason := opts.AutoApproveReason
-		if reason == "" {
-			reason = "auto-approved"
-		}
-		decision.Reasons = append(decision.Reasons, reason)
-	}
+	applyAutoApprove(decision, opts, requiredApproval)
 
 	auditHash, prevHash, err := audit.LogDecision(*decision, req, audit.Meta{
 		SessionID: opts.SessionID,
@@ -136,4 +81,82 @@ func Evaluate(eng *policy.Engine, req types.DecisionRequest, opts EvalOpts) (*Re
 		ApprovalRecord:   approvalRec,
 		RequiredApproval: requiredApproval,
 	}, nil
+}
+
+func applyIdentityOverrides(req types.DecisionRequest, opts EvalOpts) types.DecisionRequest {
+	if opts.AuthSubject != "" {
+		req.Subject = opts.AuthSubject
+	}
+	if opts.AuthRole != "" {
+		req.Role = opts.AuthRole
+	}
+	if opts.AuthAgent != "" {
+		req.Agent = opts.AuthAgent
+	}
+	return req
+}
+
+func evaluateDecision(eng *policy.Engine, req types.DecisionRequest, opts EvalOpts) *types.Decision {
+	if req.Agent != "" && opts.SessionIssuedAt != "" && eng.AgentTTLExceeded(req.Agent, opts.SessionIssuedAt) {
+		return &types.Decision{
+			Decision: types.DecisionDeny,
+			Reasons:  []string{fmt.Sprintf("deny: agent session for '%s' exceeded TTL", req.Agent)},
+		}
+	}
+	return eng.Evaluate(&req)
+}
+
+func enrichDecision(decision *types.Decision, req types.DecisionRequest) {
+	decision.Timestamp = time.Now().UTC().Format(time.RFC3339)
+	decision.RequestID = fmt.Sprintf("req-%d", time.Now().UTC().UnixNano())
+	decision.MatchedResource = req.Resource
+	decision.EvaluatedRole = req.Role
+}
+
+func persistApprovalRecord(req types.DecisionRequest, decision *types.Decision, opts EvalOpts, requiredApproval bool) (*approval.Record, error) {
+	if !requiredApproval {
+		return nil, nil
+	}
+
+	rec := approval.Record{
+		ApprovalID:    approval.NewID(),
+		RequestID:     decision.RequestID,
+		Status:        approval.StatusPending,
+		Subject:       req.Subject,
+		Role:          req.Role,
+		Agent:         req.Agent,
+		Resource:      req.Resource,
+		Action:        req.Action,
+		RequestedTier: string(req.RequestedTier),
+		Reasons:       decision.Reasons,
+		RequestedAt:   decision.Timestamp,
+	}
+	if opts.AutoApprove {
+		applyApprovalResolutionDefaults(&rec, decision.Timestamp, opts)
+	}
+	if err := approval.Create(rec); err != nil {
+		return nil, fmt.Errorf("failed to persist approval record: %w", err)
+	}
+	return &rec, nil
+}
+
+func applyApprovalResolutionDefaults(rec *approval.Record, decidedAt string, opts EvalOpts) {
+	rec.Status = approval.StatusApproved
+	rec.DecidedAt = decidedAt
+	rec.DecidedBy = opts.AutoApproveActor
+	if rec.DecidedBy == "" {
+		rec.DecidedBy = "auto-approve"
+	}
+}
+
+func applyAutoApprove(decision *types.Decision, opts EvalOpts, requiredApproval bool) {
+	if !requiredApproval || !opts.AutoApprove {
+		return
+	}
+	decision.Decision = types.DecisionAllow
+	reason := opts.AutoApproveReason
+	if reason == "" {
+		reason = "auto-approved"
+	}
+	decision.Reasons = append(decision.Reasons, reason)
 }

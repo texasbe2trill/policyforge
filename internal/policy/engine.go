@@ -19,97 +19,119 @@ func New(policy *types.Policy) *Engine {
 
 // Evaluate applies the policy to a decision request and returns a decision.
 func (e *Engine) Evaluate(req *types.DecisionRequest) *types.Decision {
-	decision := &types.Decision{
-		Reasons: []string{},
-	}
-
-	if e == nil || e.policy == nil {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, "invalid policy: engine is not initialized")
+	role, resource, tier, decision := e.evaluateCoreChecks(req)
+	if decision != nil {
 		return decision
 	}
 
-	if req == nil {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, "invalid request: request payload is required")
-		return decision
-	}
-
-	// Check 1: Role exists
-	role := e.findRole(req.Role)
-	if role == nil {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: role '%s' was not found", req.Role))
-		return decision
-	}
-
-	// Check 2: Action is allowed for role
-	if !e.actionAllowedForRole(req.Action, role) {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: action '%s' is not allowed for role '%s'", req.Action, req.Role))
-		return decision
-	}
-
-	// Check 3: Resource exists
-	resource := e.findResource(req.Resource)
-	if resource == nil {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: resource '%s' was not found", req.Resource))
-		return decision
-	}
-
-	// Check 4: Role is allowed for resource
-	if !e.resourceAllowedForRole(req.Resource, role) {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: role '%s' is not allowed to access resource '%s'", req.Role, req.Resource))
-		return decision
-	}
-
-	// Check 5: Requested tier exists
-	tier := e.findTier(req.RequestedTier)
-	if tier == nil {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: requested tier '%s' was not found", req.RequestedTier))
-		return decision
-	}
-
-	// Check 6: Requested tier is allowed for role
-	if !e.tierAllowedForRole(req.RequestedTier, role) {
-		decision.Decision = types.DecisionDeny
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("deny: requested tier '%s' is not allowed for role '%s'", req.RequestedTier, req.Role))
-		return decision
-	}
-
-	if e.exceedsMaxTier(req.RequestedTier, role.MaxTier) {
-		decision.Decision = types.DecisionRequireApproval
-		decision.Reasons = append(decision.Reasons, fmt.Sprintf("approval: requested tier '%s' exceeds role '%s' max tier '%s'", req.RequestedTier, req.Role, role.MaxTier))
-		return decision
-	}
-
-	// Check 7: Agent envelope — hard deny/approval checks run before softgates so
-	// that an agent restriction always takes precedence over a resource approval.
 	if agentDecision := e.evaluateAgentEnvelope(req); agentDecision != nil {
 		return agentDecision
 	}
 
-	// Check 8: Approval requirements
-	if resource.RequiresApproval || tier.RequiresApproval {
-		decision.Decision = types.DecisionRequireApproval
-		reasons := []string{}
-		if resource.RequiresApproval {
-			reasons = append(reasons, fmt.Sprintf("approval: resource '%s' requires approval", req.Resource))
-		}
-		if tier.RequiresApproval {
-			reasons = append(reasons, fmt.Sprintf("approval: tier '%s' requires approval", req.RequestedTier))
-		}
-		decision.Reasons = reasons
-		return decision
+	if approvalDecision := buildApprovalDecision(req, resource, tier); approvalDecision != nil {
+		return approvalDecision
 	}
 
-	// All checks passed
-	decision.Decision = types.DecisionAllow
-	decision.Reasons = append(decision.Reasons, "allow: all policy checks passed")
-	return decision
+	_ = role
+	return &types.Decision{
+		Decision: types.DecisionAllow,
+		Reasons:  []string{"allow: all policy checks passed"},
+	}
+}
+
+func (e *Engine) evaluateCoreChecks(req *types.DecisionRequest) (*types.Role, *types.Resource, *types.Tier, *types.Decision) {
+	if invalidDecision := e.invalidInputDecision(req); invalidDecision != nil {
+		return nil, nil, nil, invalidDecision
+	}
+
+	role, roleDecision := e.loadRole(req)
+	if roleDecision != nil {
+		return nil, nil, nil, roleDecision
+	}
+
+	resource, resourceDecision := e.loadResource(req, role)
+	if resourceDecision != nil {
+		return role, nil, nil, resourceDecision
+	}
+
+	tier, tierDecision := e.loadTier(req, role)
+	if tierDecision != nil {
+		return role, resource, nil, tierDecision
+	}
+
+	if e.exceedsMaxTier(req.RequestedTier, role.MaxTier) {
+		return role, resource, tier, &types.Decision{
+			Decision: types.DecisionRequireApproval,
+			Reasons: []string{fmt.Sprintf(
+				"approval: requested tier '%s' exceeds role '%s' max tier '%s'",
+				req.RequestedTier,
+				req.Role,
+				role.MaxTier,
+			)},
+		}
+	}
+
+	return role, resource, tier, nil
+}
+
+func (e *Engine) invalidInputDecision(req *types.DecisionRequest) *types.Decision {
+	if e == nil || e.policy == nil {
+		return denyDecision("invalid policy: engine is not initialized")
+	}
+	if req == nil {
+		return denyDecision("invalid request: request payload is required")
+	}
+	return nil
+}
+
+func (e *Engine) loadRole(req *types.DecisionRequest) (*types.Role, *types.Decision) {
+	role := e.findRole(req.Role)
+	if role == nil {
+		return nil, denyDecision(fmt.Sprintf("deny: role '%s' was not found", req.Role))
+	}
+	if !e.actionAllowedForRole(req.Action, role) {
+		return nil, denyDecision(fmt.Sprintf("deny: action '%s' is not allowed for role '%s'", req.Action, req.Role))
+	}
+	return role, nil
+}
+
+func (e *Engine) loadResource(req *types.DecisionRequest, role *types.Role) (*types.Resource, *types.Decision) {
+	resource := e.findResource(req.Resource)
+	if resource == nil {
+		return nil, denyDecision(fmt.Sprintf("deny: resource '%s' was not found", req.Resource))
+	}
+	if !e.resourceAllowedForRole(req.Resource, role) {
+		return nil, denyDecision(fmt.Sprintf("deny: role '%s' is not allowed to access resource '%s'", req.Role, req.Resource))
+	}
+	return resource, nil
+}
+
+func (e *Engine) loadTier(req *types.DecisionRequest, role *types.Role) (*types.Tier, *types.Decision) {
+	tier := e.findTier(req.RequestedTier)
+	if tier == nil {
+		return nil, denyDecision(fmt.Sprintf("deny: requested tier '%s' was not found", req.RequestedTier))
+	}
+	if !e.tierAllowedForRole(req.RequestedTier, role) {
+		return nil, denyDecision(fmt.Sprintf("deny: requested tier '%s' is not allowed for role '%s'", req.RequestedTier, req.Role))
+	}
+	return tier, nil
+}
+
+func buildApprovalDecision(req *types.DecisionRequest, resource *types.Resource, tier *types.Tier) *types.Decision {
+	var reasons []string
+	if resource.RequiresApproval {
+		reasons = append(reasons, fmt.Sprintf("approval: resource '%s' requires approval", req.Resource))
+	}
+	if tier.RequiresApproval {
+		reasons = append(reasons, fmt.Sprintf("approval: tier '%s' requires approval", req.RequestedTier))
+	}
+	if len(reasons) == 0 {
+		return nil
+	}
+	return &types.Decision{
+		Decision: types.DecisionRequireApproval,
+		Reasons:  reasons,
+	}
 }
 
 // evaluateAgentEnvelope runs agent-specific checks after RBAC has passed.
